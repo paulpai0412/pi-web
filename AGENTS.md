@@ -104,8 +104,8 @@ Tool names are passed at session creation (`POST /api/agent/new` → `toolNames[
 ### SSE reconnect on page refresh mid-stream
 On `ChatWindow` mount, `GET /api/agent/[id]` is called. If `state.isStreaming === true`, SSE is reconnected automatically. `thinkingLevel` and `isCompacting` are also synced from this response.
 
-### Auto-compaction SSE events
-`auto_compaction_start` / `auto_compaction_end` are emitted by the library for *auto*-compaction only (not manual compact). `handleAgentEvent` in `ChatWindow` handles both to keep `isCompacting` in sync. Manual compact is a blocking POST — the button stays disabled until the response returns.
+### Compaction SSE events
+Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `auto_compaction_start` / `auto_compaction_end`. `handleAgentEvent` accepts both sets to keep `isCompacting` in sync. Manual compact is a blocking POST — the button stays disabled until the response returns.
 
 ### Orphaned sessions
 Sessions whose first line can't be parsed as a valid header are marked `orphaned: true` in the API response — displayed with an "incomplete" badge in the sidebar and not clickable.
