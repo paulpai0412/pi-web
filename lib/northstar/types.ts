@@ -138,4 +138,3 @@ export interface NorthstarWizardEvidence {
   links: Array<{ label: string; url: string }>;
   payloadPreview: JsonValue;
 }
-

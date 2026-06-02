@@ -5,9 +5,8 @@ import { getNorthstarServerApi } from "@/lib/northstar/server-client";
 export async function GET(req: Request, context: { params: Promise<{ issueId: string }> }) {
   try {
     const { issueId } = await context.params;
-    const decodedIssueId = decodeURIComponent(issueId);
     const api = await getNorthstarServerApi(req);
-    return NextResponse.json({ issue: api.getIssue(decodedIssueId) });
+    return NextResponse.json({ issue: api.getIssue(issueId) });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
