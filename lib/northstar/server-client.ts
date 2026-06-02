@@ -4,6 +4,8 @@ import { existsSync } from "fs";
 import { resolve } from "path";
 import { pathToFileURL } from "url";
 
+import { createNorthstarLocalApi as createDefaultNorthstarLocalApi } from "./local-api-loader";
+
 export interface NorthstarServerApi {
   getProject(): unknown;
   getBoard(): unknown;
@@ -28,6 +30,10 @@ export async function getNorthstarServerApi(request: Request): Promise<Northstar
   }
 
   const northstarRoot = process.env.NORTHSTAR_ROOT ?? DEFAULT_NORTHSTAR_ROOT;
+  if (northstarRoot === DEFAULT_NORTHSTAR_ROOT) {
+    return createDefaultNorthstarLocalApi({ configPath: resolve(configPath) });
+  }
+
   const modulePath = resolve(northstarRoot, "src/operator-dashboard/local-api.ts");
   if (!existsSync(modulePath)) {
     throw new Error(`Northstar local API not found at ${modulePath}`);
