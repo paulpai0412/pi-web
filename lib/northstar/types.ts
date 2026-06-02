@@ -4,6 +4,7 @@ export type JsonObject = { [key: string]: JsonValue };
 
 export type NorthstarWizardPhase = "plan" | "setup" | "execute" | "monitor" | "recovery" | "report";
 export type NorthstarHostAdapter = "codex" | "opencode" | "pi";
+export type NorthstarOptionalParameter = "skill" | "model";
 export type NorthstarLifecycleState =
   | "ready"
   | "claimed"
@@ -16,6 +17,16 @@ export type NorthstarLifecycleState =
   | "failed"
   | "quarantined";
 
+export interface NorthstarProjectCapabilities {
+  hostAdapters: readonly NorthstarHostAdapter[];
+  optionalParameters: readonly NorthstarOptionalParameter[];
+  mcpServers: {
+    status: "design_only";
+    configurable: false;
+    supported: false;
+  };
+}
+
 export interface NorthstarProjectSummary {
   id?: string;
   projectId: string;
@@ -25,6 +36,7 @@ export interface NorthstarProjectSummary {
   hostAdapter: NorthstarHostAdapter;
   configPath: string;
   runtimeDbPath: string;
+  capabilities: NorthstarProjectCapabilities;
 }
 
 export interface NorthstarBoard {
