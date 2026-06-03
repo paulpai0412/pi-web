@@ -542,6 +542,10 @@ function TextFileViewer({ filePath, cwd }: Props) {
   const [wrapLines, setWrapLines] = useState(false);
   const [watching, setWatching] = useState(false);
   const [changeCount, setChangeCount] = useState(0);
+  const [editMode, setEditMode] = useState(false);
+  const [editContent, setEditContent] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const esRef = useRef<EventSource | null>(null);
 
   const fetchContent = useCallback((filePath: string, isRefresh = false) => {
@@ -570,6 +574,42 @@ function TextFileViewer({ filePath, cwd }: Props) {
       });
   }, []);
 
+  const saveFile = useCallback(async () => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const encoded = encodeFilePathForApi(filePath);
+      const res = await fetch(`/api/files/${encoded}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: editContent }),
+      });
+      const json = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok || json.error) {
+        setSaveError(json.error ?? "Save failed");
+        return;
+      }
+      setEditMode(false);
+    } catch (e) {
+      setSaveError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  }, [filePath, editContent]);
+
+  // Ctrl+S / Cmd+S to save when in edit mode
+  useEffect(() => {
+    if (!editMode) return;
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        saveFile();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [editMode, saveFile]);
+
   // Initial load + SSE watch setup
   useEffect(() => {
     setLoading(true);
@@ -581,6 +621,8 @@ function TextFileViewer({ filePath, cwd }: Props) {
     setWrapLines(false);
     setChangeCount(0);
     setWatching(false);
+    setEditMode(false);
+    setSaveError(null);
 
     if (esRef.current) {
       esRef.current.close();
@@ -711,7 +753,7 @@ function TextFileViewer({ filePath, cwd }: Props) {
         )}
 
         {/* Word wrap toggle */}
-        {viewMode === "source" && !previewMode && (
+        {viewMode === "source" && !previewMode && !editMode && (
           <button
             onClick={() => setWrapLines((v) => !v)}
             title={wrapLines ? "Disable word wrap" : "Enable word wrap"}
@@ -725,6 +767,52 @@ function TextFileViewer({ filePath, cwd }: Props) {
           >
             wrap
           </button>
+        )}
+
+        {/* Edit / Save / Cancel */}
+        {viewMode === "source" && !previewMode && !editMode && (
+          <button
+            onClick={() => { setEditContent(data.content); setEditMode(true); setSaveError(null); }}
+            title="Edit file"
+            style={{
+              padding: "2px 8px", fontSize: 11, cursor: "pointer",
+              background: "var(--bg-hover)", color: "var(--text-muted)",
+              border: "1px solid var(--border)", borderRadius: 5,
+            }}
+          >
+            edit
+          </button>
+        )}
+        {editMode && (
+          <>
+            {saveError && (
+              <span style={{ fontSize: 11, color: "#f87171" }}>{saveError}</span>
+            )}
+            <button
+              onClick={saveFile}
+              disabled={saving}
+              title="Save (Ctrl+S)"
+              style={{
+                padding: "2px 8px", fontSize: 11, cursor: saving ? "default" : "pointer",
+                background: "var(--bg-selected)", color: "var(--text)",
+                border: "1px solid var(--border)", borderRadius: 5, fontWeight: 600,
+                opacity: saving ? 0.6 : 1,
+              }}
+            >
+              {saving ? "saving…" : "save"}
+            </button>
+            <button
+              onClick={() => { setEditMode(false); setSaveError(null); }}
+              disabled={saving}
+              style={{
+                padding: "2px 8px", fontSize: 11, cursor: "pointer",
+                background: "var(--bg-hover)", color: "var(--text-muted)",
+                border: "1px solid var(--border)", borderRadius: 5,
+              }}
+            >
+              cancel
+            </button>
+          </>
         )}
 
         {/* HTML source/preview toggle */}
@@ -786,7 +874,27 @@ function TextFileViewer({ filePath, cwd }: Props) {
 
       {/* Content area */}
       <div style={{ flex: 1, overflow: "auto", background: "var(--bg)" }}>
-        {viewMode === "diff" && hasDiff ? (
+        {editMode ? (
+          <textarea
+            value={editContent}
+            onChange={(e) => setEditContent(e.target.value)}
+            spellCheck={false}
+            style={{
+              width: "100%",
+              height: "100%",
+              resize: "none",
+              border: "none",
+              outline: "none",
+              background: "var(--bg)",
+              color: "var(--text)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 13,
+              lineHeight: 1.6,
+              padding: "12px 16px",
+              boxSizing: "border-box",
+            }}
+          />
+        ) : viewMode === "diff" && hasDiff ? (
           <DiffView oldContent={prevContent!} newContent={data.content} language={data.language} />
         ) : isHtml && previewMode ? (
           <iframe
