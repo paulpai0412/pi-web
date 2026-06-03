@@ -136,6 +136,17 @@ function StreamIcon() {
   );
 }
 
+function PrIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={iconStroke}>
+      <circle cx="18" cy="18" r="3" />
+      <circle cx="6" cy="6" r="3" />
+      <path d="M6 9v9a3 3 0 0 0 3 3h6" />
+      <path d="M18 15V6" />
+    </svg>
+  );
+}
+
 interface CardProps {
   card: NorthstarBoardCard;
   onClick: () => void;
@@ -175,9 +186,28 @@ function BoardCard({ card, onClick, onOpenSse }: CardProps) {
       </div>
       <div style={{ marginTop: 7, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         {card.prUrl && (
-          <a href={card.prUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
-            style={{ fontSize: 11, color: "var(--accent)", textDecoration: "none" }}>
-            View PR ↗
+          <a
+            className="ns-btn"
+            href={card.prUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            title="View PR"
+            aria-label="View PR"
+            style={{
+              width: 24,
+              height: 22,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              border: "1px solid var(--border)",
+              borderRadius: 4,
+              background: "var(--bg-panel)",
+              color: "var(--text)",
+              textDecoration: "none",
+            }}
+          >
+            <PrIcon />
           </a>
         )}
         <button

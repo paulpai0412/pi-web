@@ -21,7 +21,7 @@ export function WatchSsePanel({
   onClose,
   onSessionEnded,
 }: Props) {
-  const { lines, isLive, isReconnecting, reconnectAttempts, reconnectNow, clear, ended } = usePiSessionSse(sessionId);
+  const { entries, isLive, isReconnecting, reconnectAttempts, reconnectNow, clear, ended } = usePiSessionSse(sessionId);
 
   useEffect(() => {
     if (ended) onSessionEnded?.();
@@ -57,8 +57,11 @@ export function WatchSsePanel({
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "8px 12px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", whiteSpace: "nowrap" }}>{title}</span>
-          <span style={{ fontSize: 11, color: isLive ? "#16a34a" : isReconnecting ? "#d97706" : "var(--text-muted)" }}>
+          <span style={{ fontSize: 11, color: isLive ? "#16a34a" : isReconnecting ? "#d97706" : "var(--text-muted)", border: "1px solid var(--border)", borderRadius: 999, padding: "1px 8px", background: "var(--bg-panel)" }}>
             {isLive ? "live" : isReconnecting ? `reconnecting (${reconnectAttempts})` : "stopped"}
+          </span>
+          <span style={{ fontSize: 11, color: "var(--text-dim)", border: "1px solid var(--border)", borderRadius: 999, padding: "1px 8px", background: "var(--bg-panel)" }}>
+            msgs: {entries.length}
           </span>
           {sessionId && <span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>session: {sessionId}</span>}
         </div>
@@ -71,15 +74,30 @@ export function WatchSsePanel({
         </div>
       </div>
 
-      <div style={{ flex: 1, overflow: "auto", padding: "8px 12px", fontFamily: "var(--font-mono)", fontSize: 11, display: "flex", flexDirection: "column", gap: 2 }}>
+      <div style={{ flex: 1, overflow: "auto", padding: "8px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
         {!sessionId ? (
-          <div style={{ color: "var(--text-dim)" }}>No active watch session.</div>
-        ) : lines.length === 0 ? (
-          <div style={{ color: "var(--text-dim)" }}>{isLive ? "Waiting for stream..." : "No events yet."}</div>
+          <div style={{ color: "var(--text-dim)", fontSize: 12 }}>No active watch session.</div>
+        ) : entries.length === 0 ? (
+          <div style={{ color: "var(--text-dim)", fontSize: 12 }}>{isLive ? "Waiting for stream..." : "No events yet."}</div>
         ) : (
-          lines.map((line) => (
-            <div key={line.id} style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", color: line.tone === "error" ? "#ef4444" : line.tone === "warning" ? "#d97706" : "var(--text-muted)" }}>
-              {line.text}
+          entries.map((entry) => (
+            <div
+              key={entry.id}
+              style={{
+                alignSelf: entry.role === "assistant" ? "flex-start" : "stretch",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                padding: "6px 8px",
+                background: entry.role === "assistant" ? "var(--assistant-bg)" : "var(--bg-panel)",
+                fontSize: 12,
+                color: entry.role === "assistant" ? "var(--text)" : "var(--text-muted)",
+                fontFamily: entry.role === "assistant" ? "inherit" : "var(--font-mono)",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+              }}
+            >
+              {entry.text}
+              {entry.isLive && <span style={{ marginLeft: 4, opacity: 0.6 }}>▋</span>}
             </div>
           ))
         )}
