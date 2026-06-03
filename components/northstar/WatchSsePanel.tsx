@@ -52,7 +52,7 @@ export function WatchSsePanel({
       <div
         onMouseDown={startResize}
         title="Drag to resize"
-        style={{ height: 8, cursor: "row-resize", borderBottom: "1px solid var(--border)", background: "var(--bg-panel)", flexShrink: 0 }}
+        style={{ height: 8, cursor: "row-resize", borderBottom: "1px solid var(--border)", background: "var(--bg-panel)", flexShrink: 0, transition: "background 140ms ease" }}
       />
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "8px 12px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
@@ -89,11 +89,13 @@ export function WatchSsePanel({
 }
 
 const btnStyle: React.CSSProperties = {
-  padding: "4px 10px",
+  height: 26,
+  padding: "0 10px",
   fontSize: 11,
   border: "1px solid var(--border)",
   borderRadius: 5,
   background: "var(--bg-panel)",
   color: "var(--text)",
   cursor: "pointer",
+  transition: "background 140ms ease, border-color 140ms ease, color 140ms ease",
 };

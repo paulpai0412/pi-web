@@ -97,6 +97,45 @@ const centeredStyle: React.CSSProperties = {
   padding: 24, textAlign: "center", color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6,
 };
 
+const iconStroke: React.CSSProperties = { width: 14, height: 14, display: "block" };
+
+function RefreshIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={iconStroke}>
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+      <path d="M21 3v6h-6" />
+    </svg>
+  );
+}
+
+function StartIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" style={iconStroke}>
+      <path d="M8 5v14l11-7z" />
+    </svg>
+  );
+}
+
+function StopIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" style={iconStroke}>
+      <rect x="6" y="6" width="12" height="12" rx="1.5" />
+    </svg>
+  );
+}
+
+function StreamIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={iconStroke}>
+      <circle cx="12" cy="12" r="2" />
+      <path d="M16.24 7.76a6 6 0 0 1 0 8.48" />
+      <path d="M7.76 16.24a6 6 0 0 1 0-8.48" />
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+      <path d="M4.93 19.07a10 10 0 0 1 0-14.14" />
+    </svg>
+  );
+}
+
 interface CardProps {
   card: NorthstarBoardCard;
   onClick: () => void;
@@ -111,16 +150,16 @@ function BoardCard({ card, onClick, onOpenSse }: CardProps) {
     <article
       onClick={onClick}
       style={{
-        border: `1px solid ${problem === "red" ? "#ef4444" : problem === "orange" ? "#d97706" : "var(--border)"}`,
+        border: "1px solid var(--border)",
         borderRadius: 6, background: "var(--bg)", color: "var(--text)",
         padding: 10, minWidth: 0, boxSizing: "border-box", cursor: "pointer",
-        boxShadow: problem ? `0 0 0 1px ${problem === "red" ? "#ef444433" : "#d9770633"}` : undefined,
+        transition: "background 140ms ease, border-color 140ms ease",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
         <span style={{ color: "var(--text-muted)", fontSize: 11, flexShrink: 0 }}>{issueLabel}</span>
         <span style={{ width: 7, height: 7, borderRadius: 999, background: statusDotColor(card), flexShrink: 0 }} />
-        {problem && <span style={{ fontSize: 11 }}>⚠</span>}
+        {problem && <span style={{ fontSize: 11, color: problem === "red" ? "#ef4444" : "#d97706" }}>⚠</span>}
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12, fontWeight: 600 }}>
           {card.title}
         </span>
@@ -148,19 +187,9 @@ function BoardCard({ card, onClick, onOpenSse }: CardProps) {
             e.stopPropagation();
             onOpenSse();
           }}
-          style={{
-            width: 24,
-            height: 22,
-            padding: 0,
-            fontSize: 12,
-            border: "1px solid var(--border)",
-            borderRadius: 4,
-            background: "var(--bg-panel)",
-            color: "var(--text)",
-            cursor: "pointer",
-          }}
+          style={{ ...headerIconButtonStyle, width: 24, height: 22, borderRadius: 4 }}
         >
-          📡
+          <StreamIcon />
         </button>
       </div>
     </article>
@@ -375,18 +404,18 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-          <button type="button" title="Refresh" aria-label="Refresh" onClick={() => void load(configPath)} style={headerButtonStyle}>↻</button>
+          <button type="button" title="Refresh" aria-label="Refresh" onClick={() => void load(configPath)} style={headerIconButtonStyle}><RefreshIcon /></button>
           {!watchActive ? (
-            <button type="button" title="Start watch" aria-label="Start watch" onClick={() => void startWatch()} disabled={watchBusy} style={{ ...headerButtonStyle, opacity: watchBusy ? 0.6 : 1 }}>
-              ▶
+            <button type="button" title="Start watch" aria-label="Start watch" onClick={() => void startWatch()} disabled={watchBusy} style={{ ...headerIconButtonStyle, opacity: watchBusy ? 0.6 : 1 }}>
+              <StartIcon />
             </button>
           ) : (
-            <button type="button" title="Stop watch" aria-label="Stop watch" onClick={() => void stopWatch("manual")} disabled={watchBusy || !watchSessionId} style={{ ...headerButtonStyle, opacity: watchBusy ? 0.6 : 1 }}>
-              ■
+            <button type="button" title="Stop watch" aria-label="Stop watch" onClick={() => void stopWatch("manual")} disabled={watchBusy || !watchSessionId} style={{ ...headerIconButtonStyle, opacity: watchBusy ? 0.6 : 1 }}>
+              <StopIcon />
             </button>
           )}
-          <button type="button" title={watchPanelOpen ? "Hide SSE" : "Show SSE"} aria-label={watchPanelOpen ? "Hide SSE" : "Show SSE"} onClick={() => setWatchPanelOpen((v) => !v)} style={headerButtonStyle}>
-            📡
+          <button type="button" title={watchPanelOpen ? "Hide SSE" : "Show SSE"} aria-label={watchPanelOpen ? "Hide SSE" : "Show SSE"} onClick={() => setWatchPanelOpen((v) => !v)} style={headerIconButtonStyle}>
+            <StreamIcon />
           </button>
         </div>
       </div>
@@ -439,15 +468,18 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
   );
 }
 
-const headerButtonStyle: React.CSSProperties = {
+const headerIconButtonStyle: React.CSSProperties = {
   width: 28,
   height: 26,
   padding: 0,
-  fontSize: 13,
   border: "1px solid var(--border)",
   borderRadius: 5,
   background: "var(--bg-panel)",
   color: "var(--text)",
   cursor: "pointer",
   flexShrink: 0,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  transition: "background 140ms ease, border-color 140ms ease, color 140ms ease",
 };

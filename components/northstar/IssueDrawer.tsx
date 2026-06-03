@@ -54,8 +54,18 @@ const sectionStyle: React.CSSProperties = {
   padding: "8px 14px",
 };
 
+const sectionTitleStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  color: "var(--text-muted)",
+  marginBottom: 6,
+  textTransform: "uppercase",
+  letterSpacing: 1,
+};
+
 const btnStyle: React.CSSProperties = {
-  padding: "5px 12px",
+  height: 26,
+  padding: "0 12px",
   fontSize: 12,
   border: "1px solid var(--border)",
   borderRadius: 5,
@@ -63,6 +73,7 @@ const btnStyle: React.CSSProperties = {
   color: "var(--text)",
   cursor: "pointer",
   marginRight: 6,
+  transition: "background 140ms ease, border-color 140ms ease, color 140ms ease",
 };
 
 export function IssueDrawer({ card, projectId, configPath, onClose }: Props) {
@@ -159,14 +170,14 @@ export function IssueDrawer({ card, projectId, configPath, onClose }: Props) {
             )}
           </div>
         </div>
-        <button type="button" onClick={onClose} style={{ ...btnStyle, flexShrink: 0, marginRight: 0 }}>✕</button>
+        <button type="button" onClick={onClose} style={{ ...btnStyle, width: 28, padding: 0, flexShrink: 0, marginRight: 0 }} aria-label="Close issue drawer" title="Close">
+          ✕
+        </button>
       </div>
 
       {actions.length > 0 && (
         <div style={sectionStyle}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>
-            Actions
-          </div>
+          <div style={sectionTitleStyle}>Actions</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {actions.map((action) => (
               <button
@@ -196,7 +207,7 @@ export function IssueDrawer({ card, projectId, configPath, onClose }: Props) {
           <button
             type="button"
             onClick={() => setSnapshotOpen((v) => !v)}
-            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, padding: 0 }}
+            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, padding: 0, transition: "color 140ms ease" }}
           >
             {snapshotOpen ? "▾" : "▸"} Snapshot
           </button>
@@ -215,7 +226,7 @@ export function IssueDrawer({ card, projectId, configPath, onClose }: Props) {
           <button
             type="button"
             onClick={() => setHistoryOpen((v) => !v)}
-            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, padding: 0 }}
+            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, padding: 0, transition: "color 140ms ease" }}
           >
             {historyOpen ? "▾" : "▸"} History {detail ? `(${detail.timeline.length})` : ""}
           </button>

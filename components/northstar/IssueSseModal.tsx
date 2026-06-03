@@ -24,7 +24,7 @@ export function IssueSseModal({ card, onClose }: Props) {
       }}
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.38)", zIndex: 120, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
     >
-      <section style={{ width: "min(920px, 96vw)", height: "min(70vh, 700px)", border: "1px solid var(--border)", borderRadius: 8, background: "var(--bg)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <section style={{ width: "min(920px, 96vw)", height: "min(70vh, 700px)", border: "1px solid var(--border)", borderRadius: 8, background: "var(--bg)", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.22)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "10px 12px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -61,11 +61,13 @@ export function IssueSseModal({ card, onClose }: Props) {
 }
 
 const btnStyle: React.CSSProperties = {
-  padding: "4px 10px",
+  height: 26,
+  padding: "0 10px",
   fontSize: 11,
   border: "1px solid var(--border)",
   borderRadius: 5,
   background: "var(--bg-panel)",
   color: "var(--text)",
   cursor: "pointer",
+  transition: "background 140ms ease, border-color 140ms ease, color 140ms ease",
 };
