@@ -9,7 +9,10 @@ import { TabBar, type Tab } from "./TabBar";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { BranchNavigator } from "./BranchNavigator";
-import { NorthstarDashboard } from "./northstar/NorthstarDashboard";
+// >>> northstar: workspace tabs + view registry (see docs/northstar-integration.md)
+import { WorkspaceTabs } from "./northstar/WorkspaceTabs";
+import { renderWorkspaceView } from "./northstar/workspace-views";
+// <<< northstar
 import { useTheme } from "@/hooks/useTheme";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { ChatInputHandle } from "./ChatInput";
@@ -96,7 +99,9 @@ export function AppShell() {
 
   const [initialSessionId] = useState<string | null>(() => searchParams.get("session"));
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
-  const [workspaceView, setWorkspaceView] = useState<"chat" | "northstar">("chat");
+  // >>> northstar: workspace-view id is registry-driven ("chat" or a WORKSPACE_VIEWS id)
+  const [workspaceView, setWorkspaceView] = useState<string>("chat");
+  // <<< northstar
   // True once the initial ?session= URL param has been resolved (or confirmed absent)
   const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => !searchParams.get("session"));
   // Suppresses sessionKey bump in handleCwdChange during the initial URL restore
@@ -386,7 +391,13 @@ export function AppShell() {
               </svg>
             )}
           </button>
-          {showChat && (
+          {/* >>> northstar: Chat | Northstar workspace tabs (replaces single toggle button) */}
+          <WorkspaceTabs
+            active={workspaceView}
+            onSelect={(id) => { setWorkspaceView(id); setActiveTopPanel(null); }}
+          />
+          {/* <<< northstar */}
+          {showChat && workspaceView === "chat" && (
             <div style={{ display: "flex", alignItems: "stretch", height: "100%" }}>
               <BranchNavigator
                 tree={branchTree}
@@ -425,37 +436,8 @@ export function AppShell() {
               </button>
             </div>
           )}
-          <button
-            onClick={() => {
-              setWorkspaceView((current) => current === "northstar" ? "chat" : "northstar");
-              setActiveTopPanel(null);
-            }}
-            title={workspaceView === "northstar" ? "Show chat" : "Show Northstar"}
-            aria-pressed={workspaceView === "northstar"}
-            style={{
-              display: "flex", alignItems: "center", gap: 6,
-              height: "100%", padding: "0 12px",
-              background: workspaceView === "northstar" ? "var(--bg-selected)" : "none",
-              border: "none",
-              borderTop: workspaceView === "northstar" ? "2px solid var(--accent)" : "2px solid transparent",
-              borderRight: "1px solid var(--border)",
-              cursor: "pointer",
-              color: workspaceView === "northstar" ? "var(--text)" : "var(--text-muted)",
-              fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = workspaceView === "northstar" ? "var(--text)" : "var(--text-muted)"; }}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: workspaceView === "northstar" ? "var(--accent)" : "var(--text-dim)", flexShrink: 0 }}>
-              <rect x="3" y="4" width="18" height="16" rx="2" />
-              <line x1="8" y1="9" x2="16" y2="9" />
-              <line x1="8" y1="13" x2="14" y2="13" />
-              <line x1="8" y1="17" x2="12" y2="17" />
-            </svg>
-            <span>Northstar</span>
-          </button>
-          {/* Session stats — right-aligned in top bar */}
-          {showChat && (sessionStats || contextUsage) && (() => {
+          {/* Session stats — right-aligned in top bar (chat view only) */}
+          {showChat && workspaceView === "chat" && (sessionStats || contextUsage) && (() => {
             const t = sessionStats?.tokens;
             const c = sessionStats?.cost ?? 0;
             const fmt = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n);
@@ -583,9 +565,10 @@ export function AppShell() {
 
         {/* Chat content */}
         <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
-          {workspaceView === "northstar" ? (
-            <NorthstarDashboard configPath={activeCwd ? `${activeCwd}/.northstar.yaml` : null} />
-          ) : showChat ? (
+          {/* >>> northstar: non-chat views render from the registry */}
+          {workspaceView !== "chat" ? (
+            renderWorkspaceView(workspaceView, { activeCwd })
+          ) : /* <<< northstar */ showChat ? (
             <ChatWindow
               key={sessionKey}
               session={selectedSession}

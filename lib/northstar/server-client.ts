@@ -1,10 +1,8 @@
 import "server-only";
 
-import { existsSync } from "fs";
 import { resolve } from "path";
-import { pathToFileURL } from "url";
 
-import { createNorthstarLocalApi as createDefaultNorthstarLocalApi } from "./local-api-loader";
+import { createNorthstarLocalApi } from "./local-api-loader";
 
 export interface NorthstarServerApi {
   getProject(): unknown;
@@ -16,29 +14,14 @@ export interface NorthstarServerApi {
   runWizardAction(request: Record<string, unknown>): unknown;
 }
 
-type NorthstarLocalApiModule = {
-  createNorthstarLocalApi(input: { configPath: string }): NorthstarServerApi;
-};
-
-const DEFAULT_NORTHSTAR_ROOT = "/home/timmypai/.codex/worktrees/0536/northstar";
-
+// The Northstar source location is fixed at build time by the relative import in
+// local-api-loader.js (it is bundled by webpack). The *data* — which project and
+// runtime DB — is selected per request by the config path below.
 export async function getNorthstarServerApi(request: Request): Promise<NorthstarServerApi> {
   const url = new URL(request.url);
   const configPath = url.searchParams.get("config") ?? process.env.NORTHSTAR_CONFIG;
   if (!configPath) {
     throw new Error("NORTHSTAR_CONFIG is required");
   }
-
-  const northstarRoot = process.env.NORTHSTAR_ROOT ?? DEFAULT_NORTHSTAR_ROOT;
-  if (northstarRoot === DEFAULT_NORTHSTAR_ROOT) {
-    return createDefaultNorthstarLocalApi({ configPath: resolve(configPath) });
-  }
-
-  const modulePath = resolve(northstarRoot, "src/operator-dashboard/local-api.ts");
-  if (!existsSync(modulePath)) {
-    throw new Error(`Northstar local API not found at ${modulePath}`);
-  }
-
-  const mod = (await import(pathToFileURL(modulePath).href)) as NorthstarLocalApiModule;
-  return mod.createNorthstarLocalApi({ configPath: resolve(configPath) });
+  return createNorthstarLocalApi({ configPath: resolve(configPath) });
 }
