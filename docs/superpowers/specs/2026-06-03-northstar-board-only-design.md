@@ -124,6 +124,26 @@ No test runner is configured (package.json has only `lint`). Verify via:
   Northstar tab, confirm the board renders and switching back to Chat works; confirm
   Branches/System still work in Chat view and are hidden in Northstar view.
 
+## Implementation addendum (2026-06-03)
+
+The backend turned out to need more than a path re-point. Webpack-bundling Northstar's
+`local-api.ts` fails: its orchestrator chain imports the host-provided pi SDK via a
+dynamic `import("@earendil-works/pi-coding-agent")`, which Next 16 cannot resolve from
+out-of-tree source (tried `serverExternalPackages`, `webpack.externals`,
+`resolve.modules`, and a `node_modules` symlink — all rejected), and runtime dynamic
+import is impossible (this Node has no TS support; `apps/northstar` has no JS build).
+
+**Resolution:** `local-api-loader.js` builds the board directly from Northstar's
+read-model + store closure (relative + `node:` imports only → bundles cleanly),
+bypassing the orchestrator entirely. `server-client.ts` simplified to always use it;
+`next.config.ts` left untouched. See `docs/northstar-integration.md`.
+
+**Verification:** `tsc` clean; `eslint` clean (my files); `npm run build` exit 0 with
+zero "Module not found"; `next start` boots and loads `node:sqlite`; the runtime DB at
+`config.project.root/config.runtime.dbPath` reads via `node:sqlite` (33 issues, 1028
+history rows for northstar-todo). The live HTTP board response could not be smoke-tested
+in this sandbox (it reaps background servers and blocks foreground `sleep`).
+
 ## Implementation order
 
 1. Backend path fix (`server-client.ts`, `local-api-loader.js`).

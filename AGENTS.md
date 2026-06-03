@@ -1,5 +1,12 @@
 # Pi Agent Web - Development Notes
 
+## 強制技能要求（Mandatory Skill）
+
+本專案**必須使用** `karpathy-guidelines` skill。任何寫程式、回顧、重構或除錯行為前，均需先遵循：
+
+- `superpowers/skills/karpathy-guidelines`（位於 `/home/timmypai/.agents/skills/superpowers/skills/karpathy-guidelines/SKILL.md`）
+- 先思考再寫程式、優先簡潔、進行外科手術式修改、以可驗證的目標執行
+
 ## Quick Start
 
 ```bash

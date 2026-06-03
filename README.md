@@ -51,7 +51,7 @@ PORT=8080 pi-web                 # 也支持环境变量
 
 ```bash
 npm install
-npm run dev   # 端口 30141
+npm run dev   # 端口 3030
 ```
 
 ## 项目结构

@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { SessionInfo } from "@/lib/types";
 import { FileExplorer } from "./FileExplorer";
+import { useTheme } from "@/hooks/useTheme";
 
 interface Props {
   selectedSessionId: string | null;
@@ -157,6 +158,7 @@ function PiAgentTitle() {
   const [showVersion, setShowVersion] = useState(false);
   const [scrambling, setScrambling] = useState(false);
   const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { isDark } = useTheme();
 
   const target = showVersion ? `${process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}p${process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}` : "Pi Agent Web";
   const display = useScramble(target, scrambling);
@@ -183,15 +185,26 @@ function PiAgentTitle() {
   return (
     <button
       onClick={handleClick}
+      aria-label={showVersion ? "Northstar version" : "Northstar"}
+      title={showVersion ? "App version" : "Show app version"}
       style={{
         background: "none", border: "none", padding: 0, cursor: "default",
+        display: "flex", alignItems: "center", justifyContent: "flex-start",
+        height: 32,
         fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em",
         color: showVersion ? "var(--accent)" : "var(--text)",
         fontFamily: "var(--font-mono)",
-        minWidth: "6ch",
+        minWidth: showVersion ? "6ch" : 118,
       }}
     >
-      {display}
+      {showVersion ? display : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={isDark ? "/brand/northstar-logo-dark.png" : "/brand/northstar-logo-light.png"}
+          alt="Northstar"
+          style={{ width: 118, height: 32, objectFit: "contain", display: "block" }}
+        />
+      )}
     </button>
   );
 }
