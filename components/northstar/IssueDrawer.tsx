@@ -1,0 +1,253 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+
+import type {
+  NorthstarBoardCard,
+  NorthstarIssueDetail,
+} from "@/lib/northstar/types";
+
+import { useIssueStream, type StreamMode } from "./useIssueStream";
+
+interface Action {
+  label: string;
+  command: string;
+}
+
+function actionsForCard(card: NorthstarBoardCard): Action[] {
+  const actions: Action[] = [];
+  const lc = card.lifecycle;
+  if (lc === "ready") actions.push({ label: "▶ Start", command: "start" });
+  else if (lc === "claimed" || lc === "running" || lc === "verifying")
+    actions.push({ label: "Reconcile", command: "reconcile" });
+  else if (lc === "verified") actions.push({ label: "🚀 Release", command: "release" });
+  else if (lc === "release_pending") actions.push({ label: "Reconcile", command: "reconcile" });
+  else if (lc === "failed") actions.push({ label: "Reconcile", command: "reconcile" });
+  else if (lc === "quarantined") actions.push({ label: "Repair runtime", command: "repair-runtime" });
+  if (card.blocked || card.projectionFailure)
+    actions.push({ label: "Retry sync", command: "retry-sync" });
+  return actions;
+}
+
+function defaultMode(card: NorthstarBoardCard, projectId: string, configPath: string): StreamMode {
+  if (card.latestRootSessionId && card.latestHostAdapter === "pi") {
+    return { type: "pi", sessionId: card.latestRootSessionId };
+  }
+  if (
+    card.latestRootSessionId &&
+    (card.lifecycle === "running" || card.lifecycle === "verifying" || card.lifecycle === "claimed")
+  ) {
+    const eventsUrl = `/api/northstar/projects/${encodeURIComponent(projectId)}/issues/${encodeURIComponent(card.issueId)}/events?config=${encodeURIComponent(configPath)}`;
+    return { type: "poll", eventsUrl };
+  }
+  return { type: "idle" };
+}
+
+interface Props {
+  card: NorthstarBoardCard | null;
+  projectId: string;
+  configPath: string;
+  onClose: () => void;
+}
+
+const drawerStyle: React.CSSProperties = {
+  position: "fixed",
+  top: 0,
+  right: 0,
+  height: "100%",
+  width: 420,
+  background: "var(--bg)",
+  borderLeft: "1px solid var(--border)",
+  display: "flex",
+  flexDirection: "column",
+  zIndex: 100,
+  boxShadow: "-4px 0 16px rgba(0,0,0,0.15)",
+  overflow: "hidden",
+};
+
+const sectionStyle: React.CSSProperties = {
+  borderBottom: "1px solid var(--border)",
+  padding: "8px 14px",
+};
+
+const btnStyle: React.CSSProperties = {
+  padding: "5px 12px",
+  fontSize: 12,
+  border: "1px solid var(--border)",
+  borderRadius: 5,
+  background: "var(--bg-panel)",
+  color: "var(--text)",
+  cursor: "pointer",
+  marginRight: 6,
+};
+
+export function IssueDrawer({ card, projectId, configPath, onClose }: Props) {
+  const [detail, setDetail] = useState<NorthstarIssueDetail | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [streamMode, setStreamMode] = useState<StreamMode>({ type: "idle" });
+  const [snapshotOpen, setSnapshotOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(true);
+
+  const { lines, isLive, exitCode } = useIssueStream(streamMode);
+
+  useEffect(() => {
+    if (!card) {
+      setDetail(null);
+      setDetailError(null);
+      setStreamMode({ type: "idle" });
+      return;
+    }
+    setDetail(null);
+    setDetailError(null);
+    // Compute mode inside effect to avoid object-identity churn on each render
+    setStreamMode(defaultMode(card, projectId, configPath));
+
+    const url = `/api/northstar/projects/${encodeURIComponent(projectId)}/issues/${encodeURIComponent(card.issueId)}?config=${encodeURIComponent(configPath)}`;
+    fetch(url)
+      .then((r) => r.json())
+      .then((body: { issue?: NorthstarIssueDetail; error?: string }) => {
+        if (body.error) setDetailError(body.error);
+        else if (body.issue) setDetail(body.issue);
+      })
+      .catch((e: unknown) => setDetailError(String(e)));
+  }, [card, projectId, configPath]);
+
+  const runAction = useCallback(
+    (command: string) => {
+      if (!card) return;
+      const url = `/api/northstar/projects/${encodeURIComponent(projectId)}/issues/${encodeURIComponent(card.issueId)}/run?action=${encodeURIComponent(command)}&config=${encodeURIComponent(configPath)}`;
+      setStreamMode({ type: "run", url });
+    },
+    [card, projectId, configPath]
+  );
+
+  if (!card) return null;
+
+  const actions = actionsForCard(card);
+  const issueLabel = card.issueNumber ? `#${card.issueNumber}` : card.issueId;
+
+  return (
+    <div style={drawerStyle}>
+      {/* Header */}
+      <div style={{ ...sectionStyle, display: "flex", alignItems: "flex-start", gap: 8 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>
+            {issueLabel} — {card.lifecycle.replace(/_/g, " ")}
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {card.title}
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 3 }}>
+            {card.currentStage ? `stage: ${card.currentStage}` : "no stage"}
+            {card.latestHostAdapter ? ` · host: ${card.latestHostAdapter}` : ""}
+            {` · deps: ${card.dependencyCount}`}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+            {detail?.sourceUrl && (
+              <a href={detail.sourceUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "var(--accent)" }}>
+                GitHub issue ↗
+              </a>
+            )}
+            {card.prUrl && (
+              <a href={card.prUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "var(--accent)" }}>
+                View PR ↗
+              </a>
+            )}
+          </div>
+        </div>
+        <button type="button" onClick={onClose} style={{ ...btnStyle, flexShrink: 0, marginRight: 0 }}>✕</button>
+      </div>
+
+      {/* Actions */}
+      {actions.length > 0 && (
+        <div style={sectionStyle}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>
+            Actions
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {actions.map((action) => (
+              <button
+                key={action.command}
+                type="button"
+                onClick={() => runAction(action.command)}
+                disabled={isLive}
+                style={{ ...btnStyle, opacity: isLive ? 0.5 : 1 }}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+          {card.lifecycle === "quarantined" && (
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>
+              Recovery: {card.nextRecommendedAction}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Scrollable content */}
+      <div style={{ flex: 1, overflow: "auto" }}>
+        {/* Live stream */}
+        {(lines.length > 0 || isLive) && (
+          <div style={{ ...sectionStyle, borderBottom: "1px solid var(--border)" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>
+              {isLive ? "Live stream ●" : exitCode !== null ? `Stream (exit ${exitCode})` : "Stream"}
+            </div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, maxHeight: 280, overflow: "auto", display: "flex", flexDirection: "column", gap: 1 }}>
+              {lines.map((line) => (
+                <div key={line.id} style={{ color: line.isStderr || line.severity === "error" ? "#ef4444" : line.severity === "warning" ? "#d97706" : "var(--text-muted)", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+                  {line.timestamp ? <span style={{ opacity: 0.5, marginRight: 6 }}>{line.timestamp.slice(11, 19)}</span> : null}
+                  {line.text}
+                </div>
+              ))}
+              {isLive && <div style={{ color: "var(--accent)" }}>▋</div>}
+            </div>
+          </div>
+        )}
+
+        {/* Snapshot */}
+        <div style={sectionStyle}>
+          <button
+            type="button"
+            onClick={() => setSnapshotOpen((v) => !v)}
+            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, padding: 0 }}
+          >
+            {snapshotOpen ? "▾" : "▸"} Snapshot
+          </button>
+          {snapshotOpen && (
+            <pre style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--text-muted)", marginTop: 6, overflow: "auto", maxHeight: 240, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+              {detailError
+                ? `Error: ${detailError}`
+                : detail
+                ? JSON.stringify(detail.snapshot, null, 2)
+                : "Loading…"}
+            </pre>
+          )}
+        </div>
+
+        {/* History */}
+        <div style={sectionStyle}>
+          <button
+            type="button"
+            onClick={() => setHistoryOpen((v) => !v)}
+            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, padding: 0 }}
+          >
+            {historyOpen ? "▾" : "▸"} History {detail ? `(${detail.timeline.length})` : ""}
+          </button>
+          {historyOpen && (
+            <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 3 }}>
+              {!detail && !detailError && <div style={{ fontSize: 11, color: "var(--text-dim)" }}>Loading…</div>}
+              {detailError && <div style={{ fontSize: 11, color: "#ef4444" }}>{detailError}</div>}
+              {detail?.timeline.map((event) => (
+                <div key={event.id} style={{ fontSize: 11, fontFamily: "var(--font-mono)", display: "flex", gap: 8, color: event.severity === "error" ? "#ef4444" : event.severity === "warning" ? "#d97706" : "var(--text-muted)" }}>
+                  <span style={{ flexShrink: 0, opacity: 0.6 }}>{event.createdAt ? event.createdAt.slice(11, 19) : "—"}</span>
+                  <span>{event.summary}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
