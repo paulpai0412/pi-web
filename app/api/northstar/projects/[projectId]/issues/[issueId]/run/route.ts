@@ -1,4 +1,5 @@
 import { spawn } from "child_process";
+import { existsSync } from "fs";
 import { resolve } from "path";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +23,7 @@ export async function GET(
 ) {
   const { issueId } = await params;
 
-  if (!/^[a-zA-Z0-9_:/-]+$/.test(issueId)) {
+  if (!/^[a-zA-Z0-9_:-]{1,128}$/.test(issueId)) {
     return new Response(JSON.stringify({ error: "Invalid issueId" }), {
       status: 400,
       headers: { "Content-Type": "application/json" },
@@ -45,16 +46,37 @@ export async function GET(
       headers: { "Content-Type": "application/json" },
     });
   }
+  // Reject paths with traversal sequences
+  if (config.includes("..")) {
+    return new Response(JSON.stringify({ error: "Invalid config path" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  // Require .northstar.yaml suffix
+  if (!config.endsWith(".northstar.yaml")) {
+    return new Response(JSON.stringify({ error: "config must be a .northstar.yaml file" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  // Verify file exists
+  const resolvedConfig = resolve(config);
+  if (!existsSync(resolvedConfig)) {
+    return new Response(JSON.stringify({ error: "Config file not found" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 
   const tsx = resolve(NORTHSTAR_ROOT, "node_modules/.bin/tsx");
   const entrypoint = resolve(NORTHSTAR_ROOT, "src/cli/entrypoint.ts");
   const cliArgs = [
     entrypoint,
     action as ValidAction,
-    "--issue",
-    issueId,
+    `--issue=${issueId}`,
     "--config",
-    resolve(config),
+    resolvedConfig,
   ];
 
   let child: ReturnType<typeof spawn> | null = null;
