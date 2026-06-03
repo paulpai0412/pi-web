@@ -1,25 +1,59 @@
 "use client";
 
-import { useEffect } from "react";
+import { useCallback, useEffect, type MouseEvent as ReactMouseEvent } from "react";
 
 import { usePiSessionSse } from "./usePiSessionSse";
 
 interface Props {
   sessionId: string | null;
   title?: string;
+  height: number;
+  onHeightChange: (nextHeight: number) => void;
   onClose: () => void;
   onSessionEnded?: () => void;
 }
 
-export function WatchSsePanel({ sessionId, title = "Northstar Watch SSE", onClose, onSessionEnded }: Props) {
+export function WatchSsePanel({
+  sessionId,
+  title = "Northstar Watch SSE",
+  height,
+  onHeightChange,
+  onClose,
+  onSessionEnded,
+}: Props) {
   const { lines, isLive, isReconnecting, reconnectAttempts, reconnectNow, clear, ended } = usePiSessionSse(sessionId);
 
   useEffect(() => {
     if (ended) onSessionEnded?.();
   }, [ended, onSessionEnded]);
 
+  const startResize = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = height;
+
+    const onMove = (moveEvent: MouseEvent) => {
+      const delta = startY - moveEvent.clientY;
+      const next = Math.max(140, Math.min(560, Math.round(startHeight + delta)));
+      onHeightChange(next);
+    };
+
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [height, onHeightChange]);
+
   return (
-    <section style={{ borderTop: "1px solid var(--border)", background: "var(--bg)", height: 220, display: "flex", flexDirection: "column", minHeight: 0 }}>
+    <section style={{ borderTop: "1px solid var(--border)", background: "var(--bg)", height, display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <div
+        onMouseDown={startResize}
+        title="Drag to resize"
+        style={{ height: 8, cursor: "row-resize", borderBottom: "1px solid var(--border)", background: "var(--bg-panel)", flexShrink: 0 }}
+      />
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "8px 12px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", whiteSpace: "nowrap" }}>{title}</span>

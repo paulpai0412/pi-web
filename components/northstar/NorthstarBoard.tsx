@@ -236,6 +236,7 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
   const [watchBusy, setWatchBusy] = useState(false);
   const [watchError, setWatchError] = useState<string | null>(null);
   const [watchPanelOpen, setWatchPanelOpen] = useState(false);
+  const [watchPanelHeight, setWatchPanelHeight] = useState(220);
 
   const [sseModalCard, setSseModalCard] = useState<NorthstarBoardCard | null>(null);
 
@@ -437,6 +438,8 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
       {watchPanelOpen && (
         <WatchSsePanel
           sessionId={watchSessionId}
+          height={watchPanelHeight}
+          onHeightChange={setWatchPanelHeight}
           onClose={() => setWatchPanelOpen(false)}
           onSessionEnded={() => setWatchActive(false)}
         />
