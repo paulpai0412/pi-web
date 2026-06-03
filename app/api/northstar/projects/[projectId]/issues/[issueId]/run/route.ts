@@ -21,6 +21,14 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string; issueId: string }> }
 ) {
   const { issueId } = await params;
+
+  if (!/^[a-zA-Z0-9_:/-]+$/.test(issueId)) {
+    return new Response(JSON.stringify({ error: "Invalid issueId" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   const url = new URL(req.url);
   const action = url.searchParams.get("action");
   const config = url.searchParams.get("config");
@@ -53,6 +61,11 @@ export async function GET(
 
   const stream = new ReadableStream({
     start(controller) {
+      let closed = false;
+      const closeOnce = () => {
+        if (!closed) { closed = true; controller.close(); }
+      };
+
       const encode = (data: unknown) => {
         controller.enqueue(
           new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`)
@@ -75,16 +88,19 @@ export async function GET(
 
       child.on("close", (code) => {
         encode({ type: "exit", code: code ?? 1 });
-        controller.close();
+        closeOnce();
       });
 
       child.on("error", (err) => {
         encode({ type: "error", message: err.message });
-        controller.close();
+        closeOnce();
       });
     },
     cancel() {
-      child?.kill();
+      if (child) {
+        child.kill("SIGTERM");
+        setTimeout(() => child?.kill("SIGKILL"), 5000);
+      }
     },
   });
 
