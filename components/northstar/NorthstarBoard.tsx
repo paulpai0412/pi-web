@@ -142,13 +142,17 @@ function BoardCard({ card, onClick, onOpenSse }: CardProps) {
         )}
         <button
           type="button"
+          title="Issue SSE"
+          aria-label="Issue SSE"
           onClick={(e) => {
             e.stopPropagation();
             onOpenSse();
           }}
           style={{
-            padding: "3px 8px",
-            fontSize: 11,
+            width: 24,
+            height: 22,
+            padding: 0,
+            fontSize: 12,
             border: "1px solid var(--border)",
             borderRadius: 4,
             background: "var(--bg-panel)",
@@ -156,7 +160,7 @@ function BoardCard({ card, onClick, onOpenSse }: CardProps) {
             cursor: "pointer",
           }}
         >
-          View SSE
+          📡
         </button>
       </div>
     </article>
@@ -228,9 +232,6 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
   const [activeCard, setActiveCard] = useState<NorthstarBoardCard | null>(null);
 
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
-  const [autoRefreshSeconds, setAutoRefreshSeconds] = useState(10);
-
-  const [watchPromptOverride, setWatchPromptOverride] = useState("");
   const [watchSessionId, setWatchSessionId] = useState<string | null>(null);
   const [watchActive, setWatchActive] = useState(false);
   const [watchBusy, setWatchBusy] = useState(false);
@@ -291,11 +292,10 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
 
     try {
       const cwd = configToCwd(configPath);
-      const message = watchPromptOverride.trim() || DEFAULT_WATCH_PROMPT;
       const payload = await postJson<{ success: boolean; sessionId: string }>("/api/agent/new", {
         cwd,
         type: "prompt",
-        message,
+        message: DEFAULT_WATCH_PROMPT,
       });
       setWatchSessionId(payload.sessionId);
       setWatchActive(true);
@@ -305,7 +305,7 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
     } finally {
       setWatchBusy(false);
     }
-  }, [configPath, watchPromptOverride]);
+  }, [configPath]);
 
   useEffect(() => {
     void load(configPath);
@@ -313,12 +313,11 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
 
   useEffect(() => {
     if (!autoRefreshEnabled || !configPath) return;
-    const seconds = Number.isFinite(autoRefreshSeconds) ? Math.max(2, autoRefreshSeconds) : 10;
     const timer = setInterval(() => {
       void load(configPath);
-    }, seconds * 1000);
+    }, 60 * 1000);
     return () => clearInterval(timer);
-  }, [autoRefreshEnabled, autoRefreshSeconds, configPath, load]);
+  }, [autoRefreshEnabled, configPath, load]);
 
   const pendingCount = useMemo(() => (board ? countPending(board) : 0), [board]);
 
@@ -365,48 +364,29 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
                 onChange={(e) => setAutoRefreshEnabled(e.target.checked)}
                 style={{ accentColor: "var(--accent)" }}
               />
-              Auto refresh
-            </label>
-            <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--text-muted)" }}>
-              sec
-              <input
-                type="number"
-                min={2}
-                value={autoRefreshSeconds}
-                onChange={(e) => setAutoRefreshSeconds(Math.max(2, Number(e.target.value) || 2))}
-                style={{ width: 60, padding: "2px 6px", fontSize: 11, border: "1px solid var(--border)", borderRadius: 4, background: "var(--bg-panel)", color: "var(--text)" }}
-              />
+              Auto refresh (60s)
             </label>
             <span style={{ fontSize: 11, color: watchActive ? "#16a34a" : "var(--text-dim)" }}>
               watch: {watchActive ? "running" : "stopped"}
             </span>
             <span style={{ fontSize: 11, color: "var(--text-dim)" }}>pending: {pendingCount}</span>
           </div>
-          <div style={{ marginTop: 8 }}>
-            <textarea
-              value={watchPromptOverride}
-              onChange={(e) => setWatchPromptOverride(e.target.value)}
-              placeholder={DEFAULT_WATCH_PROMPT}
-              rows={3}
-              style={{ width: "100%", maxWidth: 760, resize: "vertical", fontSize: 11, lineHeight: 1.4, border: "1px solid var(--border)", borderRadius: 5, padding: 6, background: "var(--bg-panel)", color: "var(--text)", fontFamily: "var(--font-mono)" }}
-            />
-          </div>
           {watchError && <div style={{ marginTop: 6, fontSize: 11, color: "#ef4444" }}>{watchError}</div>}
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-          <button type="button" onClick={() => void load(configPath)} style={headerButtonStyle}>Refresh</button>
+          <button type="button" title="Refresh" aria-label="Refresh" onClick={() => void load(configPath)} style={headerButtonStyle}>↻</button>
           {!watchActive ? (
-            <button type="button" onClick={() => void startWatch()} disabled={watchBusy} style={{ ...headerButtonStyle, opacity: watchBusy ? 0.6 : 1 }}>
-              Start
+            <button type="button" title="Start watch" aria-label="Start watch" onClick={() => void startWatch()} disabled={watchBusy} style={{ ...headerButtonStyle, opacity: watchBusy ? 0.6 : 1 }}>
+              ▶
             </button>
           ) : (
-            <button type="button" onClick={() => void stopWatch("manual")} disabled={watchBusy || !watchSessionId} style={{ ...headerButtonStyle, opacity: watchBusy ? 0.6 : 1 }}>
-              Stop
+            <button type="button" title="Stop watch" aria-label="Stop watch" onClick={() => void stopWatch("manual")} disabled={watchBusy || !watchSessionId} style={{ ...headerButtonStyle, opacity: watchBusy ? 0.6 : 1 }}>
+              ■
             </button>
           )}
-          <button type="button" onClick={() => setWatchPanelOpen((v) => !v)} style={headerButtonStyle}>
-            {watchPanelOpen ? "Hide SSE" : "Show SSE"}
+          <button type="button" title={watchPanelOpen ? "Hide SSE" : "Show SSE"} aria-label={watchPanelOpen ? "Hide SSE" : "Show SSE"} onClick={() => setWatchPanelOpen((v) => !v)} style={headerButtonStyle}>
+            📡
           </button>
         </div>
       </div>
@@ -460,8 +440,10 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
 }
 
 const headerButtonStyle: React.CSSProperties = {
-  padding: "4px 10px",
-  fontSize: 12,
+  width: 28,
+  height: 26,
+  padding: 0,
+  fontSize: 13,
   border: "1px solid var(--border)",
   borderRadius: 5,
   background: "var(--bg-panel)",
