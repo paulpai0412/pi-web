@@ -36,9 +36,9 @@ export function IssueSseModal({ card, onClose }: Props) {
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-            {reconnectAttempts >= 5 && <button type="button" onClick={reconnectNow} style={btnStyle}>Reconnect</button>}
-            <button type="button" onClick={clear} style={btnStyle}>Clear</button>
-            <button type="button" onClick={onClose} style={btnStyle}>Close</button>
+            {reconnectAttempts >= 5 && <button className="ns-btn" type="button" onClick={reconnectNow} style={btnStyle}>Reconnect</button>}
+            <button className="ns-btn" type="button" onClick={clear} style={btnStyle}>Clear</button>
+            <button className="ns-btn" type="button" onClick={onClose} style={btnStyle}>Close</button>
           </div>
         </div>
 

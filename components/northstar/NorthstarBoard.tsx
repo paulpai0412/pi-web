@@ -148,6 +148,7 @@ function BoardCard({ card, onClick, onOpenSse }: CardProps) {
 
   return (
     <article
+      className="ns-surface-interactive"
       onClick={onClick}
       style={{
         border: "1px solid var(--border)",
@@ -180,6 +181,7 @@ function BoardCard({ card, onClick, onOpenSse }: CardProps) {
           </a>
         )}
         <button
+          className="ns-btn"
           type="button"
           title="Issue SSE"
           aria-label="Issue SSE"
@@ -215,6 +217,7 @@ function Column({ lifecycle, cards, initiallyCollapsed, onCardClick, onOpenSse }
   if (collapsed) {
     return (
       <div
+        className="ns-surface-interactive"
         onClick={() => setCollapsed(false)}
         title={`${label} (${cards.length})`}
         style={{
@@ -232,7 +235,7 @@ function Column({ lifecycle, cards, initiallyCollapsed, onCardClick, onOpenSse }
 
   return (
     <section style={{ display: "flex", flexDirection: "column", minWidth: 220, maxWidth: 280, flex: "1 1 220px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg)", maxHeight: "100%" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderBottom: "1px solid var(--border)", cursor: "pointer", flexShrink: 0 }}
+      <div className="ns-surface-interactive" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderBottom: "1px solid var(--border)", cursor: "pointer", flexShrink: 0 }}
         onClick={() => setCollapsed(true)}>
         <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", textTransform: "capitalize" }}>{label}</span>
         <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{cards.length}</span>
@@ -404,17 +407,17 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-          <button type="button" title="Refresh" aria-label="Refresh" onClick={() => void load(configPath)} style={headerIconButtonStyle}><RefreshIcon /></button>
+          <button className="ns-btn" type="button" title="Refresh" aria-label="Refresh" onClick={() => void load(configPath)} style={headerIconButtonStyle}><RefreshIcon /></button>
           {!watchActive ? (
-            <button type="button" title="Start watch" aria-label="Start watch" onClick={() => void startWatch()} disabled={watchBusy} style={{ ...headerIconButtonStyle, opacity: watchBusy ? 0.6 : 1 }}>
+            <button className="ns-btn" type="button" title="Start watch" aria-label="Start watch" onClick={() => void startWatch()} disabled={watchBusy} style={{ ...headerIconButtonStyle, opacity: watchBusy ? 0.6 : 1 }}>
               <StartIcon />
             </button>
           ) : (
-            <button type="button" title="Stop watch" aria-label="Stop watch" onClick={() => void stopWatch("manual")} disabled={watchBusy || !watchSessionId} style={{ ...headerIconButtonStyle, opacity: watchBusy ? 0.6 : 1 }}>
+            <button className="ns-btn" type="button" title="Stop watch" aria-label="Stop watch" onClick={() => void stopWatch("manual")} disabled={watchBusy || !watchSessionId} style={{ ...headerIconButtonStyle, opacity: watchBusy ? 0.6 : 1 }}>
               <StopIcon />
             </button>
           )}
-          <button type="button" title={watchPanelOpen ? "Hide SSE" : "Show SSE"} aria-label={watchPanelOpen ? "Hide SSE" : "Show SSE"} onClick={() => setWatchPanelOpen((v) => !v)} style={headerIconButtonStyle}>
+          <button className="ns-btn" type="button" title={watchPanelOpen ? "Hide SSE" : "Show SSE"} aria-label={watchPanelOpen ? "Hide SSE" : "Show SSE"} onClick={() => setWatchPanelOpen((v) => !v)} style={headerIconButtonStyle}>
             <StreamIcon />
           </button>
         </div>

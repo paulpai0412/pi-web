@@ -323,4 +323,32 @@ span.linenumber {
   }
 }
 
+/* Northstar: shared interaction polish */
+.ns-btn {
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.ns-btn:hover:not(:disabled) {
+  background: var(--bg-hover) !important;
+  border-color: var(--text-dim) !important;
+}
+
+.ns-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.ns-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ns-surface-interactive {
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.ns-surface-interactive:hover {
+  background: var(--bg-hover) !important;
+}
+
 

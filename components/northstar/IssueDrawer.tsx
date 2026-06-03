@@ -170,7 +170,7 @@ export function IssueDrawer({ card, projectId, configPath, onClose }: Props) {
             )}
           </div>
         </div>
-        <button type="button" onClick={onClose} style={{ ...btnStyle, width: 28, padding: 0, flexShrink: 0, marginRight: 0 }} aria-label="Close issue drawer" title="Close">
+        <button className="ns-btn" type="button" onClick={onClose} style={{ ...btnStyle, width: 28, padding: 0, flexShrink: 0, marginRight: 0 }} aria-label="Close issue drawer" title="Close">
           ✕
         </button>
       </div>
@@ -181,6 +181,7 @@ export function IssueDrawer({ card, projectId, configPath, onClose }: Props) {
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {actions.map((action) => (
               <button
+                className="ns-btn"
                 key={action.command}
                 type="button"
                 onClick={() => runAction(action.command)}
@@ -205,6 +206,7 @@ export function IssueDrawer({ card, projectId, configPath, onClose }: Props) {
       <div style={{ flex: 1, overflow: "auto" }}>
         <div style={sectionStyle}>
           <button
+            className="ns-btn"
             type="button"
             onClick={() => setSnapshotOpen((v) => !v)}
             style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, padding: 0, transition: "color 140ms ease" }}
@@ -224,6 +226,7 @@ export function IssueDrawer({ card, projectId, configPath, onClose }: Props) {
 
         <div style={sectionStyle}>
           <button
+            className="ns-btn"
             type="button"
             onClick={() => setHistoryOpen((v) => !v)}
             style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, padding: 0, transition: "color 140ms ease" }}
