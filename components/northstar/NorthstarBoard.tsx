@@ -147,15 +147,27 @@ function PrIcon() {
   );
 }
 
+function IssueIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={iconStroke}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 8v5" />
+      <circle cx="12" cy="16.5" r="0.8" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 interface CardProps {
   card: NorthstarBoardCard;
+  repo: string;
   onClick: () => void;
   onOpenSse: () => void;
 }
 
-function BoardCard({ card, onClick, onOpenSse }: CardProps) {
+function BoardCard({ card, repo, onClick, onOpenSse }: CardProps) {
   const problem = isProblem(card);
   const issueLabel = card.issueNumber ? `#${card.issueNumber}` : card.issueId;
+  const issueUrl = card.issueNumber ? `https://github.com/${repo}/issues/${card.issueNumber}` : null;
 
   return (
     <article
@@ -185,6 +197,31 @@ function BoardCard({ card, onClick, onOpenSse }: CardProps) {
         next: {card.nextRecommendedAction}
       </div>
       <div style={{ marginTop: 7, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        {issueUrl && (
+          <a
+            className="ns-btn"
+            href={issueUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            title="View GitHub Issue"
+            aria-label="View GitHub Issue"
+            style={{
+              width: 24,
+              height: 22,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              border: "1px solid var(--border)",
+              borderRadius: 4,
+              background: "var(--bg-panel)",
+              color: "var(--text)",
+              textDecoration: "none",
+            }}
+          >
+            <IssueIcon />
+          </a>
+        )}
         {card.prUrl && (
           <a
             className="ns-btn"
@@ -231,12 +268,13 @@ function BoardCard({ card, onClick, onOpenSse }: CardProps) {
 interface ColumnProps {
   lifecycle: NorthstarLifecycleState;
   cards: NorthstarBoardCard[];
+  repo: string;
   initiallyCollapsed: boolean;
   onCardClick: (card: NorthstarBoardCard) => void;
   onOpenSse: (card: NorthstarBoardCard) => void;
 }
 
-function Column({ lifecycle, cards, initiallyCollapsed, onCardClick, onOpenSse }: ColumnProps) {
+function Column({ lifecycle, cards, repo, initiallyCollapsed, onCardClick, onOpenSse }: ColumnProps) {
   const [collapsed, setCollapsed] = useState(initiallyCollapsed);
   useEffect(() => {
     if (!initiallyCollapsed) setCollapsed(false);
@@ -277,6 +315,7 @@ function Column({ lifecycle, cards, initiallyCollapsed, onCardClick, onOpenSse }
             <BoardCard
               key={card.issueId}
               card={card}
+              repo={repo}
               onClick={() => onCardClick(card)}
               onOpenSse={() => onOpenSse(card)}
             />
@@ -469,6 +508,7 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
               key={lifecycle}
               lifecycle={lifecycle}
               cards={cards}
+              repo={board.project.repo}
               initiallyCollapsed={false}
               onCardClick={setActiveCard}
               onOpenSse={setSseModalCard}
