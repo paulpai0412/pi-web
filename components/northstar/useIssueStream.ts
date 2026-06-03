@@ -39,7 +39,6 @@ export function useIssueStream(mode: StreamMode) {
     setLines((prev) => [...prev, line]);
   }, []);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     setLines([]);
     setIsLive(false);

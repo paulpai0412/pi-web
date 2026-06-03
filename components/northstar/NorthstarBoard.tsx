@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type {
   NorthstarBoard as NorthstarBoardModel,
@@ -10,11 +10,32 @@ import type {
 } from "@/lib/northstar/types";
 
 import { IssueDrawer } from "./IssueDrawer";
+import { IssueSseModal } from "./IssueSseModal";
+import { WatchSsePanel } from "./WatchSsePanel";
 
 const LIFECYCLE_ORDER: NorthstarLifecycleState[] = [
   "ready", "claimed", "running", "verifying", "verified",
   "release_pending", "completed", "cancelled", "failed", "quarantined",
 ];
+
+const PENDING_STATES: NorthstarLifecycleState[] = [
+  "ready",
+  "claimed",
+  "running",
+  "verifying",
+  "verified",
+  "release_pending",
+];
+
+const CONFIG_SUFFIX = "/.northstar.yaml";
+
+const DEFAULT_WATCH_PROMPT = [
+  "請啟動 northstar skill watch，持續推進目前專案待處理 issue。",
+  "規則：持續循環執行直到我明確要求停止，或已無待處理 issue（ready/claimed/running/verifying/verified/release_pending 皆為 0）。",
+  "每輪請簡短回報目前進度、卡住原因與下一步。",
+].join("\n");
+
+const STOP_WATCH_PROMPT = "請停止 northstar watch，結束本輪執行並回報停止結果。";
 
 function apiPath(path: string, configPath: string) {
   return `${path}?config=${encodeURIComponent(configPath)}`;
@@ -24,6 +45,17 @@ async function readJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
   const payload = (await res.json()) as T & { error?: string };
   if (!res.ok) throw new Error(payload.error ?? `Northstar request failed with ${res.status}`);
+  return payload;
+}
+
+async function postJson<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const payload = (await res.json()) as T & { error?: string };
+  if (!res.ok) throw new Error(payload.error ?? `Request failed with ${res.status}`);
   return payload;
 }
 
@@ -49,6 +81,17 @@ function statusDotColor(card: NorthstarBoardCard): string {
   return "var(--accent)";
 }
 
+function countPending(board: NorthstarBoardModel): number {
+  const map = new Map(board.groups.map((g) => [g.lifecycle, g.cards.length]));
+  return PENDING_STATES.reduce((sum, state) => sum + (map.get(state) ?? 0), 0);
+}
+
+function configToCwd(configPath: string): string {
+  return configPath.endsWith(CONFIG_SUFFIX)
+    ? configPath.slice(0, -CONFIG_SUFFIX.length)
+    : configPath;
+}
+
 const centeredStyle: React.CSSProperties = {
   height: "100%", display: "flex", alignItems: "center", justifyContent: "center",
   padding: 24, textAlign: "center", color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6,
@@ -57,9 +100,10 @@ const centeredStyle: React.CSSProperties = {
 interface CardProps {
   card: NorthstarBoardCard;
   onClick: () => void;
+  onOpenSse: () => void;
 }
 
-function BoardCard({ card, onClick }: CardProps) {
+function BoardCard({ card, onClick, onOpenSse }: CardProps) {
   const problem = isProblem(card);
   const issueLabel = card.issueNumber ? `#${card.issueNumber}` : card.issueId;
 
@@ -89,12 +133,32 @@ function BoardCard({ card, onClick }: CardProps) {
       <div style={{ marginTop: 5, fontSize: 11, color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         next: {card.nextRecommendedAction}
       </div>
-      {card.prUrl && (
-        <a href={card.prUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
-          style={{ display: "inline-block", marginTop: 5, fontSize: 11, color: "var(--accent)", textDecoration: "none" }}>
-          View PR ↗
-        </a>
-      )}
+      <div style={{ marginTop: 7, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        {card.prUrl && (
+          <a href={card.prUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+            style={{ fontSize: 11, color: "var(--accent)", textDecoration: "none" }}>
+            View PR ↗
+          </a>
+        )}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenSse();
+          }}
+          style={{
+            padding: "3px 8px",
+            fontSize: 11,
+            border: "1px solid var(--border)",
+            borderRadius: 4,
+            background: "var(--bg-panel)",
+            color: "var(--text)",
+            cursor: "pointer",
+          }}
+        >
+          View SSE
+        </button>
+      </div>
     </article>
   );
 }
@@ -104,9 +168,10 @@ interface ColumnProps {
   cards: NorthstarBoardCard[];
   initiallyCollapsed: boolean;
   onCardClick: (card: NorthstarBoardCard) => void;
+  onOpenSse: (card: NorthstarBoardCard) => void;
 }
 
-function Column({ lifecycle, cards, initiallyCollapsed, onCardClick }: ColumnProps) {
+function Column({ lifecycle, cards, initiallyCollapsed, onCardClick, onOpenSse }: ColumnProps) {
   const [collapsed, setCollapsed] = useState(initiallyCollapsed);
   useEffect(() => {
     if (!initiallyCollapsed) setCollapsed(false);
@@ -142,7 +207,14 @@ function Column({ lifecycle, cards, initiallyCollapsed, onCardClick }: ColumnPro
       <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 8, overflow: "auto" }}>
         {sorted.length === 0
           ? <div style={{ fontSize: 12, color: "var(--text-dim)", padding: "4px 2px" }}>No issues</div>
-          : sorted.map((card) => <BoardCard key={card.issueId} card={card} onClick={() => onCardClick(card)} />)
+          : sorted.map((card) => (
+            <BoardCard
+              key={card.issueId}
+              card={card}
+              onClick={() => onCardClick(card)}
+              onOpenSse={() => onOpenSse(card)}
+            />
+          ))
         }
       </div>
     </section>
@@ -154,6 +226,18 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeCard, setActiveCard] = useState<NorthstarBoardCard | null>(null);
+
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
+  const [autoRefreshSeconds, setAutoRefreshSeconds] = useState(10);
+
+  const [watchPromptOverride, setWatchPromptOverride] = useState("");
+  const [watchSessionId, setWatchSessionId] = useState<string | null>(null);
+  const [watchActive, setWatchActive] = useState(false);
+  const [watchBusy, setWatchBusy] = useState(false);
+  const [watchError, setWatchError] = useState<string | null>(null);
+  const [watchPanelOpen, setWatchPanelOpen] = useState(false);
+
+  const [sseModalCard, setSseModalCard] = useState<NorthstarBoardCard | null>(null);
 
   const load = useCallback(async (cfg: string | null) => {
     if (!cfg) { setBoard(null); setError(null); return; }
@@ -174,7 +258,74 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
     }
   }, []);
 
-  useEffect(() => { void load(configPath); }, [configPath, load]);
+  const stopWatch = useCallback(async (reason: "manual" | "auto") => {
+    if (!watchSessionId) return;
+
+    setWatchBusy(true);
+    setWatchError(null);
+
+    try {
+      await postJson(`/api/agent/${encodeURIComponent(watchSessionId)}`, { type: "abort" });
+    } catch {
+      // continue; prompt may still stop the session cleanly
+    }
+
+    try {
+      const stopMessage = reason === "auto"
+        ? `${STOP_WATCH_PROMPT}\n\n原因：目前 board 無待處理 issue。`
+        : STOP_WATCH_PROMPT;
+      await postJson(`/api/agent/${encodeURIComponent(watchSessionId)}`, { type: "prompt", message: stopMessage });
+      setWatchActive(false);
+    } catch (e) {
+      setWatchError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setWatchBusy(false);
+    }
+  }, [watchSessionId]);
+
+  const startWatch = useCallback(async () => {
+    if (!configPath) return;
+    setWatchBusy(true);
+    setWatchError(null);
+
+    try {
+      const cwd = configToCwd(configPath);
+      const message = watchPromptOverride.trim() || DEFAULT_WATCH_PROMPT;
+      const payload = await postJson<{ success: boolean; sessionId: string }>("/api/agent/new", {
+        cwd,
+        type: "prompt",
+        message,
+      });
+      setWatchSessionId(payload.sessionId);
+      setWatchActive(true);
+      setWatchPanelOpen(true);
+    } catch (e) {
+      setWatchError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setWatchBusy(false);
+    }
+  }, [configPath, watchPromptOverride]);
+
+  useEffect(() => {
+    void load(configPath);
+  }, [configPath, load]);
+
+  useEffect(() => {
+    if (!autoRefreshEnabled || !configPath) return;
+    const seconds = Number.isFinite(autoRefreshSeconds) ? Math.max(2, autoRefreshSeconds) : 10;
+    const timer = setInterval(() => {
+      void load(configPath);
+    }, seconds * 1000);
+    return () => clearInterval(timer);
+  }, [autoRefreshEnabled, autoRefreshSeconds, configPath, load]);
+
+  const pendingCount = useMemo(() => (board ? countPending(board) : 0), [board]);
+
+  useEffect(() => {
+    if (!watchActive || !watchSessionId || watchBusy) return;
+    if (pendingCount !== 0) return;
+    void stopWatch("auto");
+  }, [pendingCount, stopWatch, watchActive, watchBusy, watchSessionId]);
 
   if (!configPath) return <div style={centeredStyle}>Select a project directory with a <code>.northstar.yaml</code> file.</div>;
   if (loading && !board) return <div style={centeredStyle}>Loading Northstar board…</div>;
@@ -189,32 +340,76 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
   );
   if (!board) return <div style={centeredStyle}>No Northstar board loaded.</div>;
 
-  // Warning bar counts
   const allCards = board.groups.flatMap((g) => g.cards);
   const redCount = allCards.filter((c) => c.lifecycle === "quarantined" || c.lifecycle === "failed").length;
   const orangeCount = allCards.filter((c) => (c.blocked || c.projectionFailure) && c.lifecycle !== "quarantined" && c.lifecycle !== "failed").length;
   const problemCount = redCount + orangeCount;
 
-  // Build a map for quick lookup
   const cardsByLifecycle = new Map(board.groups.map((g) => [g.lifecycle, g.cards]));
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", minWidth: 0, position: "relative" }}>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderBottom: "1px solid var(--border)", background: "var(--bg)", flexShrink: 0, minWidth: 0 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 14px", borderBottom: "1px solid var(--border)", background: "var(--bg)", flexShrink: 0, minWidth: 0 }}>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontSize: 15, fontWeight: 650, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{board.project.name}</div>
           <div style={{ display: "flex", gap: 10, marginTop: 2, color: "var(--text-muted)", fontSize: 12 }}>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{board.project.repo}</span>
             <span style={{ flexShrink: 0 }}>host: {board.project.hostAdapter}</span>
           </div>
+          <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--text-muted)" }}>
+              <input
+                type="checkbox"
+                checked={autoRefreshEnabled}
+                onChange={(e) => setAutoRefreshEnabled(e.target.checked)}
+                style={{ accentColor: "var(--accent)" }}
+              />
+              Auto refresh
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--text-muted)" }}>
+              sec
+              <input
+                type="number"
+                min={2}
+                value={autoRefreshSeconds}
+                onChange={(e) => setAutoRefreshSeconds(Math.max(2, Number(e.target.value) || 2))}
+                style={{ width: 60, padding: "2px 6px", fontSize: 11, border: "1px solid var(--border)", borderRadius: 4, background: "var(--bg-panel)", color: "var(--text)" }}
+              />
+            </label>
+            <span style={{ fontSize: 11, color: watchActive ? "#16a34a" : "var(--text-dim)" }}>
+              watch: {watchActive ? "running" : "stopped"}
+            </span>
+            <span style={{ fontSize: 11, color: "var(--text-dim)" }}>pending: {pendingCount}</span>
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <textarea
+              value={watchPromptOverride}
+              onChange={(e) => setWatchPromptOverride(e.target.value)}
+              placeholder={DEFAULT_WATCH_PROMPT}
+              rows={3}
+              style={{ width: "100%", maxWidth: 760, resize: "vertical", fontSize: 11, lineHeight: 1.4, border: "1px solid var(--border)", borderRadius: 5, padding: 6, background: "var(--bg-panel)", color: "var(--text)", fontFamily: "var(--font-mono)" }}
+            />
+          </div>
+          {watchError && <div style={{ marginTop: 6, fontSize: 11, color: "#ef4444" }}>{watchError}</div>}
         </div>
-        <button type="button" onClick={() => void load(configPath)} style={{ padding: "4px 10px", fontSize: 12, border: "1px solid var(--border)", borderRadius: 5, background: "var(--bg-panel)", color: "var(--text)", cursor: "pointer", flexShrink: 0 }}>
-          ↺
-        </button>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          <button type="button" onClick={() => void load(configPath)} style={headerButtonStyle}>Refresh</button>
+          {!watchActive ? (
+            <button type="button" onClick={() => void startWatch()} disabled={watchBusy} style={{ ...headerButtonStyle, opacity: watchBusy ? 0.6 : 1 }}>
+              Start
+            </button>
+          ) : (
+            <button type="button" onClick={() => void stopWatch("manual")} disabled={watchBusy || !watchSessionId} style={{ ...headerButtonStyle, opacity: watchBusy ? 0.6 : 1 }}>
+              Stop
+            </button>
+          )}
+          <button type="button" onClick={() => setWatchPanelOpen((v) => !v)} style={headerButtonStyle}>
+            {watchPanelOpen ? "Hide SSE" : "Show SSE"}
+          </button>
+        </div>
       </div>
 
-      {/* Warning bar */}
       {problemCount > 0 && (
         <div style={{ padding: "6px 14px", background: "#7c1d1d22", borderBottom: "1px solid #ef444433", fontSize: 12, color: "#ef4444", flexShrink: 0 }}>
           ⚠ {problemCount} issue{problemCount > 1 ? "s" : ""} need attention:
@@ -223,7 +418,6 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
         </div>
       )}
 
-      {/* Columns */}
       <div style={{ flex: 1, overflow: "auto", padding: 12, display: "flex", gap: 10, alignItems: "flex-start" }}>
         {LIFECYCLE_ORDER.map((lifecycle) => {
           const cards = cardsByLifecycle.get(lifecycle) ?? [];
@@ -234,12 +428,20 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
               cards={cards}
               initiallyCollapsed={cards.length === 0}
               onCardClick={setActiveCard}
+              onOpenSse={setSseModalCard}
             />
           );
         })}
       </div>
 
-      {/* Drawer */}
+      {watchPanelOpen && (
+        <WatchSsePanel
+          sessionId={watchSessionId}
+          onClose={() => setWatchPanelOpen(false)}
+          onSessionEnded={() => setWatchActive(false)}
+        />
+      )}
+
       {activeCard && (
         <IssueDrawer
           card={activeCard}
@@ -248,6 +450,19 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
           onClose={() => setActiveCard(null)}
         />
       )}
+
+      <IssueSseModal card={sseModalCard} onClose={() => setSseModalCard(null)} />
     </div>
   );
 }
+
+const headerButtonStyle: React.CSSProperties = {
+  padding: "4px 10px",
+  fontSize: 12,
+  border: "1px solid var(--border)",
+  borderRadius: 5,
+  background: "var(--bg-panel)",
+  color: "var(--text)",
+  cursor: "pointer",
+  flexShrink: 0,
+};

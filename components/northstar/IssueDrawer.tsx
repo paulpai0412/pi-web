@@ -7,8 +7,6 @@ import type {
   NorthstarIssueDetail,
 } from "@/lib/northstar/types";
 
-import { useIssueStream, type StreamMode } from "./useIssueStream";
-
 interface Action {
   label: string;
   command: string;
@@ -27,20 +25,6 @@ function actionsForCard(card: NorthstarBoardCard): Action[] {
   if (card.blocked || card.projectionFailure)
     actions.push({ label: "Retry sync", command: "retry-sync" });
   return actions;
-}
-
-function defaultMode(card: NorthstarBoardCard, projectId: string, configPath: string): StreamMode {
-  if (card.latestRootSessionId && card.latestHostAdapter === "pi") {
-    return { type: "pi", sessionId: card.latestRootSessionId };
-  }
-  if (
-    card.latestRootSessionId &&
-    (card.lifecycle === "running" || card.lifecycle === "verifying" || card.lifecycle === "claimed")
-  ) {
-    const eventsUrl = `/api/northstar/projects/${encodeURIComponent(projectId)}/issues/${encodeURIComponent(card.issueId)}/events?config=${encodeURIComponent(configPath)}`;
-    return { type: "poll", eventsUrl };
-  }
-  return { type: "idle" };
 }
 
 interface Props {
@@ -84,23 +68,21 @@ const btnStyle: React.CSSProperties = {
 export function IssueDrawer({ card, projectId, configPath, onClose }: Props) {
   const [detail, setDetail] = useState<NorthstarIssueDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [streamMode, setStreamMode] = useState<StreamMode>({ type: "idle" });
   const [snapshotOpen, setSnapshotOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(true);
-
-  const { lines, isLive, exitCode } = useIssueStream(streamMode);
+  const [isRunningAction, setIsRunningAction] = useState(false);
+  const [actionStatus, setActionStatus] = useState<string | null>(null);
 
   useEffect(() => {
     if (!card) {
       setDetail(null);
       setDetailError(null);
-      setStreamMode({ type: "idle" });
+      setActionStatus(null);
       return;
     }
     setDetail(null);
     setDetailError(null);
-    // Compute mode inside effect to avoid object-identity churn on each render
-    setStreamMode(defaultMode(card, projectId, configPath));
+    setActionStatus(null);
 
     const url = `/api/northstar/projects/${encodeURIComponent(projectId)}/issues/${encodeURIComponent(card.issueId)}?config=${encodeURIComponent(configPath)}`;
     fetch(url)
@@ -114,11 +96,34 @@ export function IssueDrawer({ card, projectId, configPath, onClose }: Props) {
 
   const runAction = useCallback(
     (command: string) => {
-      if (!card) return;
+      if (!card || isRunningAction) return;
       const url = `/api/northstar/projects/${encodeURIComponent(projectId)}/issues/${encodeURIComponent(card.issueId)}/run?action=${encodeURIComponent(command)}&config=${encodeURIComponent(configPath)}`;
-      setStreamMode({ type: "run", url });
+
+      setIsRunningAction(true);
+      setActionStatus(`Running ${command}...`);
+
+      const es = new EventSource(url);
+
+      es.onmessage = (e) => {
+        const data = JSON.parse(e.data as string) as { type: string; code?: number; message?: string };
+        if (data.type === "exit") {
+          setActionStatus(data.code === 0 ? `${command} completed.` : `${command} failed (exit ${data.code ?? 1}).`);
+          setIsRunningAction(false);
+          es.close();
+        } else if (data.type === "error") {
+          setActionStatus(data.message ?? `${command} failed.`);
+          setIsRunningAction(false);
+          es.close();
+        }
+      };
+
+      es.onerror = () => {
+        setActionStatus(`${command} interrupted.`);
+        setIsRunningAction(false);
+        es.close();
+      };
     },
-    [card, projectId, configPath]
+    [card, configPath, isRunningAction, projectId]
   );
 
   if (!card) return null;
@@ -128,7 +133,6 @@ export function IssueDrawer({ card, projectId, configPath, onClose }: Props) {
 
   return (
     <div style={drawerStyle}>
-      {/* Header */}
       <div style={{ ...sectionStyle, display: "flex", alignItems: "flex-start", gap: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>
@@ -158,7 +162,6 @@ export function IssueDrawer({ card, projectId, configPath, onClose }: Props) {
         <button type="button" onClick={onClose} style={{ ...btnStyle, flexShrink: 0, marginRight: 0 }}>✕</button>
       </div>
 
-      {/* Actions */}
       {actions.length > 0 && (
         <div style={sectionStyle}>
           <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>
@@ -170,8 +173,8 @@ export function IssueDrawer({ card, projectId, configPath, onClose }: Props) {
                 key={action.command}
                 type="button"
                 onClick={() => runAction(action.command)}
-                disabled={isLive}
-                style={{ ...btnStyle, opacity: isLive ? 0.5 : 1 }}
+                disabled={isRunningAction}
+                style={{ ...btnStyle, opacity: isRunningAction ? 0.5 : 1 }}
               >
                 {action.label}
               </button>
@@ -182,30 +185,13 @@ export function IssueDrawer({ card, projectId, configPath, onClose }: Props) {
               Recovery: {card.nextRecommendedAction}
             </div>
           )}
+          {actionStatus && (
+            <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 6 }}>{actionStatus}</div>
+          )}
         </div>
       )}
 
-      {/* Scrollable content */}
       <div style={{ flex: 1, overflow: "auto" }}>
-        {/* Live stream */}
-        {(lines.length > 0 || isLive) && (
-          <div style={{ ...sectionStyle, borderBottom: "1px solid var(--border)" }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>
-              {isLive ? "Live stream ●" : exitCode !== null ? `Stream (exit ${exitCode})` : "Stream"}
-            </div>
-            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, maxHeight: 280, overflow: "auto", display: "flex", flexDirection: "column", gap: 1 }}>
-              {lines.map((line) => (
-                <div key={line.id} style={{ color: line.isStderr || line.severity === "error" ? "#ef4444" : line.severity === "warning" ? "#d97706" : "var(--text-muted)", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
-                  {line.timestamp ? <span style={{ opacity: 0.5, marginRight: 6 }}>{line.timestamp.slice(11, 19)}</span> : null}
-                  {line.text}
-                </div>
-              ))}
-              {isLive && <div style={{ color: "var(--accent)" }}>▋</div>}
-            </div>
-          </div>
-        )}
-
-        {/* Snapshot */}
         <div style={sectionStyle}>
           <button
             type="button"
@@ -225,7 +211,6 @@ export function IssueDrawer({ card, projectId, configPath, onClose }: Props) {
           )}
         </div>
 
-        {/* History */}
         <div style={sectionStyle}>
           <button
             type="button"
