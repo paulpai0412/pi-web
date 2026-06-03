@@ -462,19 +462,22 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
       )}
 
       <div style={{ flex: 1, overflow: "auto", padding: 12, display: "flex", gap: 10, alignItems: "flex-start" }}>
-        {LIFECYCLE_ORDER.map((lifecycle) => {
+        {LIFECYCLE_ORDER.filter((lifecycle) => (cardsByLifecycle.get(lifecycle) ?? []).length > 0).map((lifecycle) => {
           const cards = cardsByLifecycle.get(lifecycle) ?? [];
           return (
             <Column
               key={lifecycle}
               lifecycle={lifecycle}
               cards={cards}
-              initiallyCollapsed={cards.length === 0}
+              initiallyCollapsed={false}
               onCardClick={setActiveCard}
               onOpenSse={setSseModalCard}
             />
           );
         })}
+        {LIFECYCLE_ORDER.every((lifecycle) => (cardsByLifecycle.get(lifecycle) ?? []).length === 0) && (
+          <div style={{ fontSize: 12, color: "var(--text-dim)", padding: 6 }}>No issues on the board.</div>
+        )}
       </div>
 
       {watchPanelOpen && (

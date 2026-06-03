@@ -2,44 +2,43 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export interface PiSessionEntry {
-  id: string;
-  role: "assistant" | "tool" | "system";
-  text: string;
-  isLive?: boolean;
-}
+import { normalizeToolCalls } from "@/lib/normalize";
+import type { AgentMessage, AssistantMessage, TextContent } from "@/lib/types";
 
 type AgentEvent = {
   type: string;
+  message?: AgentMessage;
   delta?: string;
-  message?: unknown;
-  toolName?: string;
   errorMessage?: string;
-  messageText?: string;
 };
 
-function textFromMessageContent(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-
-  const parts: string[] = [];
-  for (const block of content) {
-    if (!block || typeof block !== "object") continue;
-    const b = block as { type?: string; text?: string; summary?: string };
-    if (typeof b.text === "string") parts.push(b.text);
-    else if (typeof b.summary === "string") parts.push(b.summary);
-    else if (typeof b.type === "string") parts.push(`[${b.type}]`);
-  }
-  return parts.join("\n");
+function createStreamingAssistantWithDelta(delta: string): AssistantMessage {
+  return {
+    role: "assistant",
+    content: [{ type: "text", text: delta }],
+    model: "",
+    provider: "",
+    timestamp: Date.now(),
+  };
 }
 
-function summarizeToolResult(content: unknown): string {
-  const text = textFromMessageContent(content);
-  return text || "Tool result";
+function appendDeltaToAssistant(msg: AssistantMessage, delta: string): AssistantMessage {
+  const content = Array.isArray(msg.content) ? [...msg.content] : [];
+  const last = content[content.length - 1];
+
+  if (last && last.type === "text") {
+    const updatedLast: TextContent = { ...last, text: `${last.text}${delta}` };
+    content[content.length - 1] = updatedLast;
+  } else {
+    content.push({ type: "text", text: delta });
+  }
+
+  return { ...msg, content };
 }
 
 export function usePiSessionSse(sessionId: string | null) {
-  const [entries, setEntries] = useState<PiSessionEntry[]>([]);
+  const [messages, setMessages] = useState<AgentMessage[]>([]);
+  const [streamingMessage, setStreamingMessage] = useState<AssistantMessage | null>(null);
   const [isLive, setIsLive] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [reconnectAttempts, setReconnectAttempts] = useState(0);
@@ -50,26 +49,10 @@ export function usePiSessionSse(sessionId: string | null) {
   const esRef = useRef<EventSource | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stopRef = useRef(false);
-  const currentAssistantIdRef = useRef<string | null>(null);
-
-  const pushEntry = useCallback((entry: PiSessionEntry) => {
-    setEntries((prev) => [...prev, entry]);
-  }, []);
-
-  const updateEntryText = useCallback((id: string, updater: (prev: string) => string, isLive?: boolean) => {
-    setEntries((prev) => prev.map((entry) => {
-      if (entry.id !== id) return entry;
-      return {
-        ...entry,
-        text: updater(entry.text),
-        ...(isLive !== undefined ? { isLive } : {}),
-      };
-    }));
-  }, []);
 
   const clear = useCallback(() => {
-    currentAssistantIdRef.current = null;
-    setEntries([]);
+    setMessages([]);
+    setStreamingMessage(null);
   }, []);
 
   const reconnectNow = useCallback(() => {
@@ -81,8 +64,8 @@ export function usePiSessionSse(sessionId: string | null) {
     esRef.current?.close();
     if (timerRef.current) clearTimeout(timerRef.current);
 
-    currentAssistantIdRef.current = null;
-    setEntries([]);
+    setMessages([]);
+    setStreamingMessage(null);
     setIsLive(false);
     setIsReconnecting(false);
     setReconnectAttempts(0);
@@ -118,60 +101,26 @@ export function usePiSessionSse(sessionId: string | null) {
 
         if (event.type === "connected") return;
 
-        if (event.type === "agent_start") {
-          pushEntry({ id: `sys-${Date.now()}-${Math.random()}`, role: "system", text: "Agent started" });
+        if ((event.type === "message_start" || event.type === "message_update") && event.message) {
+          const msg = normalizeToolCalls(event.message);
+          if (msg.role === "assistant") {
+            setStreamingMessage(msg as AssistantMessage);
+          }
           return;
         }
 
         if (event.type === "text_delta" && typeof event.delta === "string") {
-          let assistantId = currentAssistantIdRef.current;
-          if (!assistantId) {
-            assistantId = `assistant-${Date.now()}-${Math.random()}`;
-            currentAssistantIdRef.current = assistantId;
-            pushEntry({ id: assistantId, role: "assistant", text: event.delta, isLive: true });
-            return;
-          }
-          updateEntryText(assistantId, (prev) => prev + event.delta, true);
+          setStreamingMessage((prev) => {
+            if (!prev) return createStreamingAssistantWithDelta(event.delta as string);
+            return appendDeltaToAssistant(prev, event.delta as string);
+          });
           return;
         }
 
-        if (event.type === "message_end" && event.message && typeof event.message === "object") {
-          const msg = event.message as { role?: string; content?: unknown };
-          if (msg.role === "assistant") {
-            const finalText = textFromMessageContent(msg.content);
-            const assistantId = currentAssistantIdRef.current;
-            if (assistantId) {
-              if (finalText) {
-                updateEntryText(assistantId, () => finalText, false);
-              } else {
-                updateEntryText(assistantId, (prev) => prev, false);
-              }
-            } else {
-              pushEntry({ id: `assistant-${Date.now()}-${Math.random()}`, role: "assistant", text: finalText || "(no content)", isLive: false });
-            }
-            currentAssistantIdRef.current = null;
-            return;
-          }
-
-          if (msg.role === "toolResult") {
-            pushEntry({ id: `tool-${Date.now()}-${Math.random()}`, role: "tool", text: summarizeToolResult(msg.content) });
-            return;
-          }
-
-          if (msg.role === "user") {
-            const text = textFromMessageContent(msg.content);
-            if (text) pushEntry({ id: `usr-${Date.now()}-${Math.random()}`, role: "system", text: `User: ${text}` });
-            return;
-          }
-        }
-
-        if (event.type === "tool_execution_start") {
-          pushEntry({ id: `tool-start-${Date.now()}-${Math.random()}`, role: "system", text: `Running tool: ${event.toolName ?? "unknown"}` });
-          return;
-        }
-
-        if (event.type === "tool_execution_end") {
-          pushEntry({ id: `tool-end-${Date.now()}-${Math.random()}`, role: "system", text: `Tool finished: ${event.toolName ?? "unknown"}` });
+        if (event.type === "message_end" && event.message) {
+          const completed = normalizeToolCalls(event.message);
+          setMessages((prev) => [...prev, completed]);
+          if (completed.role === "assistant") setStreamingMessage(null);
           return;
         }
 
@@ -180,19 +129,13 @@ export function usePiSessionSse(sessionId: string | null) {
           setEnded(true);
           setIsLive(false);
           setIsReconnecting(false);
-          currentAssistantIdRef.current = null;
-          pushEntry({ id: `sys-end-${Date.now()}-${Math.random()}`, role: "system", text: "Agent finished" });
+          setStreamingMessage(null);
           es.close();
           return;
         }
 
         if (event.type === "error" || event.type === "agent_error") {
-          pushEntry({
-            id: `err-${Date.now()}-${Math.random()}`,
-            role: "system",
-            text: event.errorMessage ?? event.messageText ?? "Agent error",
-          });
-          return;
+          setError(event.errorMessage ?? "Agent error");
         }
       };
 
@@ -216,14 +159,14 @@ export function usePiSessionSse(sessionId: string | null) {
       disposed = true;
       esRef.current?.close();
       if (timerRef.current) clearTimeout(timerRef.current);
-      currentAssistantIdRef.current = null;
       setIsLive(false);
       setIsReconnecting(false);
     };
-  }, [pushEntry, reconnectNonce, sessionId, updateEntryText]);
+  }, [reconnectNonce, sessionId]);
 
   return {
-    entries,
+    messages,
+    streamingMessage,
     isLive,
     isReconnecting,
     reconnectAttempts,

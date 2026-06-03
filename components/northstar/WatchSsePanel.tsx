@@ -1,6 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useMemo, type MouseEvent as ReactMouseEvent } from "react";
+
+import type { AgentMessage, ToolResultMessage } from "@/lib/types";
+
+import { MessageView } from "@/components/MessageView";
 
 import { usePiSessionSse } from "./usePiSessionSse";
 
@@ -13,6 +17,16 @@ interface Props {
   onSessionEnded?: () => void;
 }
 
+function buildToolResultsMap(messages: AgentMessage[]): Map<string, ToolResultMessage> {
+  const map = new Map<string, ToolResultMessage>();
+  for (const msg of messages) {
+    if (msg.role === "toolResult") {
+      map.set((msg as ToolResultMessage).toolCallId, msg as ToolResultMessage);
+    }
+  }
+  return map;
+}
+
 export function WatchSsePanel({
   sessionId,
   title = "Northstar Watch SSE",
@@ -21,7 +35,15 @@ export function WatchSsePanel({
   onClose,
   onSessionEnded,
 }: Props) {
-  const { entries, isLive, isReconnecting, reconnectAttempts, reconnectNow, clear, ended } = usePiSessionSse(sessionId);
+  const { messages, streamingMessage, isLive, isReconnecting, reconnectAttempts, reconnectNow, clear, ended } = usePiSessionSse(sessionId);
+
+  const visibleMessages = useMemo(() => {
+    const base = messages.filter((m) => m.role === "user" || m.role === "assistant");
+    if (streamingMessage) base.push(streamingMessage);
+    return base;
+  }, [messages, streamingMessage]);
+
+  const toolResultsMap = useMemo(() => buildToolResultsMap(messages), [messages]);
 
   useEffect(() => {
     if (ended) onSessionEnded?.();
@@ -61,7 +83,7 @@ export function WatchSsePanel({
             {isLive ? "live" : isReconnecting ? `reconnecting (${reconnectAttempts})` : "stopped"}
           </span>
           <span style={{ fontSize: 11, color: "var(--text-dim)", border: "1px solid var(--border)", borderRadius: 999, padding: "1px 8px", background: "var(--bg-panel)" }}>
-            msgs: {entries.length}
+            msgs: {visibleMessages.length}
           </span>
           {sessionId && <span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>session: {sessionId}</span>}
         </div>
@@ -74,31 +96,20 @@ export function WatchSsePanel({
         </div>
       </div>
 
-      <div style={{ flex: 1, overflow: "auto", padding: "8px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ flex: 1, overflow: "auto", padding: "8px 12px" }}>
         {!sessionId ? (
           <div style={{ color: "var(--text-dim)", fontSize: 12 }}>No active watch session.</div>
-        ) : entries.length === 0 ? (
+        ) : visibleMessages.length === 0 ? (
           <div style={{ color: "var(--text-dim)", fontSize: 12 }}>{isLive ? "Waiting for stream..." : "No events yet."}</div>
         ) : (
-          entries.map((entry) => (
-            <div
-              key={entry.id}
-              style={{
-                alignSelf: entry.role === "assistant" ? "flex-start" : "stretch",
-                border: "1px solid var(--border)",
-                borderRadius: 6,
-                padding: "6px 8px",
-                background: entry.role === "assistant" ? "var(--assistant-bg)" : "var(--bg-panel)",
-                fontSize: 12,
-                color: entry.role === "assistant" ? "var(--text)" : "var(--text-muted)",
-                fontFamily: entry.role === "assistant" ? "inherit" : "var(--font-mono)",
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-              }}
-            >
-              {entry.text}
-              {entry.isLive && <span style={{ marginLeft: 4, opacity: 0.6 }}>▋</span>}
-            </div>
+          visibleMessages.map((msg, i) => (
+            <MessageView
+              key={`${msg.role}-${i}-${msg.timestamp ?? 0}`}
+              message={msg}
+              isStreaming={!!streamingMessage && i === visibleMessages.length - 1 && msg.role === "assistant"}
+              toolResults={toolResultsMap}
+              showTimestamp={false}
+            />
           ))
         )}
       </div>

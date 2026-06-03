@@ -1,6 +1,10 @@
 "use client";
 
+import { useMemo } from "react";
+
+import { MessageView } from "@/components/MessageView";
 import type { NorthstarBoardCard } from "@/lib/northstar/types";
+import type { AgentMessage, ToolResultMessage } from "@/lib/types";
 
 import { usePiSessionSse } from "./usePiSessionSse";
 
@@ -9,9 +13,27 @@ interface Props {
   onClose: () => void;
 }
 
+function buildToolResultsMap(messages: AgentMessage[]): Map<string, ToolResultMessage> {
+  const map = new Map<string, ToolResultMessage>();
+  for (const msg of messages) {
+    if (msg.role === "toolResult") {
+      map.set((msg as ToolResultMessage).toolCallId, msg as ToolResultMessage);
+    }
+  }
+  return map;
+}
+
 export function IssueSseModal({ card, onClose }: Props) {
   const sessionId = card?.latestRootSessionId ?? null;
-  const { entries, isLive, isReconnecting, reconnectAttempts, reconnectNow, clear } = usePiSessionSse(sessionId);
+  const { messages, streamingMessage, isLive, isReconnecting, reconnectAttempts, reconnectNow, clear } = usePiSessionSse(sessionId);
+
+  const visibleMessages = useMemo(() => {
+    const base = messages.filter((m) => m.role === "user" || m.role === "assistant");
+    if (streamingMessage) base.push(streamingMessage);
+    return base;
+  }, [messages, streamingMessage]);
+
+  const toolResultsMap = useMemo(() => buildToolResultsMap(messages), [messages]);
 
   if (!card) return null;
 
@@ -35,7 +57,7 @@ export function IssueSseModal({ card, onClose }: Props) {
                 {isLive ? "live" : isReconnecting ? `reconnecting (${reconnectAttempts})` : "stopped"}
               </span>
               <span style={{ fontSize: 11, color: "var(--text-dim)", border: "1px solid var(--border)", borderRadius: 999, padding: "1px 8px", background: "var(--bg-panel)" }}>
-                msgs: {entries.length}
+                msgs: {visibleMessages.length}
               </span>
               {sessionId ? <span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sessionId}</span> : null}
             </div>
@@ -47,31 +69,20 @@ export function IssueSseModal({ card, onClose }: Props) {
           </div>
         </div>
 
-        <div style={{ flex: 1, overflow: "auto", padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ flex: 1, overflow: "auto", padding: "10px 12px" }}>
           {!sessionId ? (
             <div style={{ color: "var(--text-dim)", fontSize: 12 }}>No root session id for this issue yet.</div>
-          ) : entries.length === 0 ? (
+          ) : visibleMessages.length === 0 ? (
             <div style={{ color: "var(--text-dim)", fontSize: 12 }}>{isLive ? "Waiting for stream..." : "No events yet."}</div>
           ) : (
-            entries.map((entry) => (
-              <div
-                key={entry.id}
-                style={{
-                  alignSelf: entry.role === "assistant" ? "flex-start" : "stretch",
-                  border: "1px solid var(--border)",
-                  borderRadius: 6,
-                  padding: "7px 9px",
-                  background: entry.role === "assistant" ? "var(--assistant-bg)" : "var(--bg-panel)",
-                  fontSize: 12,
-                  color: entry.role === "assistant" ? "var(--text)" : "var(--text-muted)",
-                  fontFamily: entry.role === "assistant" ? "inherit" : "var(--font-mono)",
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                }}
-              >
-                {entry.text}
-                {entry.isLive && <span style={{ marginLeft: 4, opacity: 0.6 }}>▋</span>}
-              </div>
+            visibleMessages.map((msg, i) => (
+              <MessageView
+                key={`${msg.role}-${i}-${msg.timestamp ?? 0}`}
+                message={msg}
+                isStreaming={!!streamingMessage && i === visibleMessages.length - 1 && msg.role === "assistant"}
+                toolResults={toolResultsMap}
+                showTimestamp={false}
+              />
             ))
           )}
         </div>
