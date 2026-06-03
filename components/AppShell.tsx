@@ -130,6 +130,7 @@ export function AppShell() {
   }, [router]);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
+    setWorkspaceView("chat");
     setNewSessionCwd(null);
     setSelectedSession(session);
     setSessionKey((k) => k + 1);
@@ -149,6 +150,7 @@ export function AppShell() {
   }, [router]);
 
   const handleNewSession = useCallback((_sessionId: string, cwd: string) => {
+    setWorkspaceView("chat");
     setSelectedSession(null);
     setNewSessionCwd(cwd);
     setSessionKey((k) => k + 1);
@@ -161,6 +163,7 @@ export function AppShell() {
 
   // Called by ChatWindow when a new session gets its real id from pi
   const handleSessionCreated = useCallback((session: SessionInfo) => {
+    setWorkspaceView("chat");
     setNewSessionCwd(null);
     setSelectedSession(session);
     setRefreshKey((k) => k + 1);
@@ -173,6 +176,7 @@ export function AppShell() {
   }, []);
 
   const handleSessionForked = useCallback((newSessionId: string) => {
+    setWorkspaceView("chat");
     setRefreshKey((k) => k + 1);
     setSessionKey((k) => k + 1);
     setNewSessionCwd(null);
