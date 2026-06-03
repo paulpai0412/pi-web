@@ -22,15 +22,15 @@ The current `NorthstarBoard.tsx` is a functional read-only kanban but lacks:
 2. Empty columns collapse to a thin strip (collapse/expand on click).
 3. Per-card highlight: `quarantined`/`failed` red border; `blocked`/`projectionFailure` orange border; problem cards float to column top; board-level warning bar.
 4. Right-side slide-out drawer: snapshot + state-machine action buttons + live history/SSE stream.
-5. Action buttons map to northstar CLI commands, executed via northstar skill with arguments.
-6. SSE streaming: pi host → subscribe to `/api/agent/{latestRootSessionId}/events`; other adapters → poll SQLite history diff.
+5. Action buttons trigger northstar skill commands via a new pi agent session; output streams live in the drawer.
+6. SSE streaming: action-triggered sessions and active workers (pi host, `latestRootSessionId`) both use `/api/agent/{sessionId}/events`; other adapters poll SQLite history diff.
 7. GitHub issue link + PR link on each card (when available).
 
 ## Non-goals
 
-- Actually spawning the northstar CLI from pi-web (node version constraint, architecture boundary).
+- Spawning the northstar TypeScript CLI directly from pi-web (system Node 22.22.1 has no TS support; northstar requires 22.22.2+ compiled with `--experimental-strip-types`). Execution goes through pi agent instead.
 - Wizard / assistant tabs.
-- Any changes to `app/api/northstar/*` routes except adding `getIssue` / `listIssueEvents` to `local-api-loader.js`.
+- Any changes to `app/api/northstar/*` routes except adding `getIssue` / `listIssueEvents` to `local-api-loader.js` and the new `run` action endpoint.
 
 ## Architecture
 
@@ -70,31 +70,49 @@ Two modes keyed on `latestHostAdapter` of the card:
 - Diffs against last-seen sequence number, appends new `NorthstarRunEvent` entries.
 - Stops polling when lifecycle moves to a terminal state (`completed`, `cancelled`, `failed`, `quarantined`).
 
-### Action buttons — state machine mapping
+### Action buttons — execution flow
 
-Buttons pass a composed CLI argument string to the northstar skill via
-`/northstar-execute <args>` or `/northstar-recover <args>`. The skill's built-in
-Execution Gate / Recovery Gate handles confirmation before mutation.
+Clicking an action button **directly executes** via a new API endpoint that creates a pi
+agent session and sends the northstar skill command to it. The northstar TypeScript CLI
+cannot be spawned directly (system Node lacks TS support); instead pi-web delegates to
+the pi agent which runs the skill in its own environment.
 
-| lifecycle | button label | CLI args | skill |
-|---|---|---|---|
-| `ready` | Start | `start --issue <issueId> --config <configPath>` | `/northstar-execute` |
-| `claimed` | Reconcile | `reconcile --issue <issueId> --config <configPath>` | `/northstar-execute` |
-| `running` | Reconcile | `reconcile --issue <issueId> --config <configPath>` | `/northstar-execute` |
-| `verifying` | Reconcile | `reconcile --issue <issueId> --config <configPath>` | `/northstar-execute` |
-| `verified` | Release | `release --issue <issueId> --config <configPath>` | `/northstar-execute` |
-| `release_pending` | Reconcile | `reconcile --issue <issueId> --config <configPath>` | `/northstar-execute` |
-| `failed` | Reconcile | `reconcile --issue <issueId> --config <configPath>` | `/northstar-recover` |
-| `quarantined` | Repair runtime | `repair-runtime --issue <issueId> --config <configPath>` | `/northstar-recover` |
-| `completed` / `cancelled` | — | none | — |
+**Execution path:**
+```
+Board button click
+  → POST /api/northstar/projects/{projectId}/issues/{issueId}/run
+      { action: "start"|"reconcile"|"release"|"repair-runtime"|"retry-sync", configPath }
+  → rpc-manager.startRpcSession(project.root, ...)  [creates pi AgentSession]
+  → sends "/northstar-execute start --issue <issueId> --config <configPath>"
+     (or "/northstar-recover ..." for recovery actions)
+  → returns { sessionId }
+Drawer
+  → subscribes to GET /api/agent/{sessionId}/events  (existing SSE infrastructure)
+  → shows live agent output including Execution Gate confirmation and tool call results
+```
 
-Additional: when `projectionFailure === true` or `blocked === true`, show a secondary
-`Retry sync` button: `retry-sync --issue <issueId> --config <configPath>` via `/northstar-execute`.
+**State machine → skill command mapping:**
 
-**Button interaction:** Clicking a button copies the full `/northstar-execute <args>` (or
-`/northstar-recover <args>`) slash command string to the clipboard and shows a toast
-"Copied — paste into Claude Code to run". This keeps pi-web stateless and delegates
-execution entirely to the skill.
+| lifecycle | button label | skill command sent to pi agent |
+|---|---|---|
+| `ready` | ▶ Start | `/northstar-execute start --issue <id> --config <path>` |
+| `claimed` | Reconcile | `/northstar-execute reconcile --issue <id> --config <path>` |
+| `running` | Reconcile | `/northstar-execute reconcile --issue <id> --config <path>` |
+| `verifying` | Reconcile | `/northstar-execute reconcile --issue <id> --config <path>` |
+| `verified` | 🚀 Release | `/northstar-execute release --issue <id> --config <path>` |
+| `release_pending` | Reconcile | `/northstar-execute reconcile --issue <id> --config <path>` |
+| `failed` | Reconcile | `/northstar-recover reconcile --issue <id> --config <path>` |
+| `quarantined` | Repair runtime | `/northstar-recover repair-runtime --issue <id> --config <path>` |
+| `completed` / `cancelled` | — | none |
+
+Secondary button when `projectionFailure === true` or `blocked === true`:
+`Retry sync` → `/northstar-execute retry-sync --issue <id> --config <path>`
+
+**New API route:** `POST /api/northstar/projects/[projectId]/issues/[issueId]/run`
+- Reads `config` query param (same as other northstar routes).
+- Calls `rpc-manager.startRpcSession(projectRoot, { prompt: skillCommand })`.
+- Returns `{ sessionId }`.
+- Client then subscribes to `/api/agent/{sessionId}/events` for live streaming.
 
 ### Layout
 
@@ -177,6 +195,9 @@ current drawer. Drawer is independent of the board scroll position.
 
 ### New (additive, upgrade-safe)
 
+- `app/api/northstar/projects/[projectId]/issues/[issueId]/run/route.ts` — new POST endpoint:
+  calls `rpc-manager.startRpcSession(project.root, { prompt: skillCommand })`, returns `{ sessionId }`.
+
 - `components/northstar/NorthstarBoard.tsx` — **rewrite** existing file:
   - Horizontal layout with collapsible empty columns.
   - Warning bar for problem issues.
@@ -220,7 +241,8 @@ Manual:
 ## Implementation order
 
 1. `local-api-loader.js` — add `getIssue` + `listIssueEvents`.
-2. `useIssueStream.ts` — streaming hook (pi SSE + poll-diff modes).
-3. `IssueDrawer.tsx` — drawer component with snapshot, stream, history, action buttons.
-4. `NorthstarBoard.tsx` — rewrite: horizontal layout, collapsible empty columns, warning bar, highlight, drawer wiring.
-5. Typecheck + lint + build.
+2. `app/api/northstar/.../run/route.ts` — new POST action-execution endpoint.
+3. `useIssueStream.ts` — streaming hook (pi SSE + poll-diff modes; also handles action-triggered sessionId).
+4. `IssueDrawer.tsx` — drawer component with snapshot, stream, history, action buttons.
+5. `NorthstarBoard.tsx` — rewrite: horizontal layout, collapsible empty columns, warning bar, highlight, drawer wiring.
+6. Typecheck + lint + build.
