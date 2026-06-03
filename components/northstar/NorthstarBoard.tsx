@@ -108,6 +108,9 @@ interface ColumnProps {
 
 function Column({ lifecycle, cards, initiallyCollapsed, onCardClick }: ColumnProps) {
   const [collapsed, setCollapsed] = useState(initiallyCollapsed);
+  useEffect(() => {
+    if (!initiallyCollapsed) setCollapsed(false);
+  }, [initiallyCollapsed]);
   const label = lifecycle.replace(/_/g, " ");
   const sorted = sortedCards(cards);
 
