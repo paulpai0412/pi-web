@@ -28,7 +28,7 @@ The current `NorthstarBoard.tsx` is a functional read-only kanban but lacks:
 
 ## Non-goals
 
-- Spawning the northstar TypeScript CLI directly from pi-web (system Node 22.22.1 has no TS support; northstar requires 22.22.2+ compiled with `--experimental-strip-types`). Execution goes through pi agent instead.
+- Wizard / assistant tabs (already excluded).
 - Wizard / assistant tabs.
 - Any changes to `app/api/northstar/*` routes except adding `getIssue` / `listIssueEvents` to `local-api-loader.js` and the new `run` action endpoint.
 
@@ -58,38 +58,46 @@ methods — they just need to stop throwing.
 
 ### SSE streaming (per-issue, in drawer)
 
-Two modes keyed on `latestHostAdapter` of the card:
+Three modes, selected by drawer state:
 
-**pi host** (`latestHostAdapter === "pi"` and `latestRootSessionId` is set):
-- Drawer subscribes to existing `/api/agent/{latestRootSessionId}/events` SSE.
-- This is pi-web's own agent event stream — zero new infrastructure.
-- Shows the same structured agent events as the Chat tab.
+**Action just triggered** (user clicked an action button):
+- Drawer subscribes to `/api/northstar/.../issues/{issueId}/run?action=...&config=...` SSE.
+- Shows raw CLI stdout/stderr lines as the northstar CLI executes.
+- On `exit` event, refreshes the board card (poll `/api/northstar/projects/{projectId}`).
 
-**Other adapters (codex, opencode)** or no active session:
-- Drawer polls `GET /api/northstar/.../issues/{issueId}/events` every 2 s.
-- Diffs against last-seen sequence number, appends new `NorthstarRunEvent` entries.
-- Stops polling when lifecycle moves to a terminal state (`completed`, `cancelled`, `failed`, `quarantined`).
+**Worker already running** (card has `latestRootSessionId`, no action just triggered):
+- `latestHostAdapter === "pi"`: subscribes to `/api/agent/{latestRootSessionId}/events` (pi-web's existing SSE).
+- Other adapters (codex, opencode): polls `GET /api/northstar/.../issues/{issueId}/events` every 2 s, diffs by sequence number.
+- Stops polling when lifecycle reaches a terminal state (`completed`, `cancelled`, `failed`, `quarantined`).
+
+**Idle / no active session**:
+- Drawer shows history list only (no live stream section).
 
 ### Action buttons — execution flow
 
-Clicking an action button **directly executes** via a new API endpoint that creates a pi
-agent session and sends the northstar skill command to it. The northstar TypeScript CLI
-cannot be spawned directly (system Node lacks TS support); instead pi-web delegates to
-the pi agent which runs the skill in its own environment.
+Clicking an action button **directly executes** the northstar CLI via a new SSE API
+endpoint. The CLI is run with `tsx` (installed as a devDependency in
+`/home/timmypai/apps/northstar`) which provides TypeScript execution on the local
+machine without requiring a specially compiled Node binary.
 
 **Execution path:**
 ```
 Board button click
-  → POST /api/northstar/projects/{projectId}/issues/{issueId}/run
-      { action: "start"|"reconcile"|"release"|"repair-runtime"|"retry-sync", configPath }
-  → rpc-manager.startRpcSession(project.root, ...)  [creates pi AgentSession]
-  → sends "/northstar-execute start --issue <issueId> --config <configPath>"
-     (or "/northstar-recover ..." for recovery actions)
-  → returns { sessionId }
+  → GET /api/northstar/projects/{projectId}/issues/{issueId}/run?action=start&config=...
+      (SSE response — streams CLI output line by line)
+  → server: spawn(
+        "/home/timmypai/apps/northstar/node_modules/.bin/tsx",
+        ["src/cli/entrypoint.ts", <command>, "--issue", <issueId>, "--config", <configPath>],
+        { cwd: "/home/timmypai/apps/northstar" }
+    )
+  → pipe stdout + stderr → SSE events: { type: "line", text } | { type: "exit", code }
 Drawer
-  → subscribes to GET /api/agent/{sessionId}/events  (existing SSE infrastructure)
-  → shows live agent output including Execution Gate confirmation and tool call results
+  → subscribes to the run SSE stream
+  → shows live CLI output in the live stream section
 ```
+
+GET (not POST) so the browser EventSource API can connect directly without CORS preflight.
+The client uses `new EventSource(url)` instead of `fetch`.
 
 **State machine → skill command mapping:**
 
@@ -108,11 +116,11 @@ Drawer
 Secondary button when `projectionFailure === true` or `blocked === true`:
 `Retry sync` → `/northstar-execute retry-sync --issue <id> --config <path>`
 
-**New API route:** `POST /api/northstar/projects/[projectId]/issues/[issueId]/run`
-- Reads `config` query param (same as other northstar routes).
-- Calls `rpc-manager.startRpcSession(projectRoot, { prompt: skillCommand })`.
-- Returns `{ sessionId }`.
-- Client then subscribes to `/api/agent/{sessionId}/events` for live streaming.
+**New API route:** `GET /api/northstar/projects/[projectId]/issues/[issueId]/run`
+- Query params: `action` (start|reconcile|release|repair-runtime|retry-sync), `config`.
+- Spawns `tsx src/cli/entrypoint.ts <action> --issue <issueId> --config <configPath>` from northstar root.
+- Returns `text/event-stream` SSE: `data: {"type":"line","text":"..."}` per stdout/stderr line; `data: {"type":"exit","code":0}` on completion.
+- NORTHSTAR_ROOT env var or hardcoded `/home/timmypai/apps/northstar` path (same as `local-api-loader.js` already uses).
 
 ### Layout
 
