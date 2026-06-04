@@ -7,9 +7,12 @@ import type { NorthstarBoardCard } from "@/lib/northstar/types";
 import type { AgentMessage, ToolResultMessage } from "@/lib/types";
 
 import { usePiSessionSse } from "./usePiSessionSse";
+import { useIssueStream } from "./useIssueStream";
 
 interface Props {
   card: NorthstarBoardCard | null;
+  projectId: string;
+  configPath: string;
   onClose: () => void;
 }
 
@@ -23,9 +26,25 @@ function buildToolResultsMap(messages: AgentMessage[]): Map<string, ToolResultMe
   return map;
 }
 
-export function IssueSseModal({ card, onClose }: Props) {
+export function IssueSseModal({ card, projectId, configPath, onClose }: Props) {
   const sessionId = card?.latestRootSessionId ?? null;
-  const { messages, streamingMessage, isLive, isReconnecting, reconnectAttempts, reconnectNow, clear } = usePiSessionSse(sessionId);
+  const usePiStream = card?.latestHostAdapter === "pi" && !!sessionId;
+  const {
+    messages,
+    streamingMessage,
+    isLive: piLive,
+    isReconnecting,
+    reconnectAttempts,
+    reconnectNow,
+    clear,
+    error: piError,
+  } = usePiSessionSse(usePiStream ? sessionId : null);
+  const eventsUrl = card
+    ? `/api/northstar/projects/${encodeURIComponent(projectId)}/issues/${encodeURIComponent(card.issueId)}/events?config=${encodeURIComponent(configPath)}`
+    : "";
+  const { lines, isLive: pollLive } = useIssueStream(
+    card && !usePiStream ? { type: "poll", eventsUrl } : { type: "idle" },
+  );
 
   const visibleMessages = useMemo(() => {
     const base = messages.filter((m) => m.role === "user" || m.role === "assistant");
@@ -38,6 +57,8 @@ export function IssueSseModal({ card, onClose }: Props) {
   if (!card) return null;
 
   const issueLabel = card.issueNumber ? `#${card.issueNumber}` : card.issueId;
+  const live = usePiStream ? piLive : pollLive;
+  const reconnecting = usePiStream ? isReconnecting : false;
 
   return (
     <div
@@ -53,37 +74,68 @@ export function IssueSseModal({ card, onClose }: Props) {
               {issueLabel} SSE Stream
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
-              <span style={{ fontSize: 11, color: isLive ? "#16a34a" : isReconnecting ? "#d97706" : "var(--text-muted)", border: "1px solid var(--border)", borderRadius: 999, padding: "1px 8px", background: "var(--bg-panel)" }}>
-                {isLive ? "live" : isReconnecting ? `reconnecting (${reconnectAttempts})` : "stopped"}
+              <span style={{ fontSize: 11, color: live ? "#16a34a" : reconnecting ? "#d97706" : "var(--text-muted)", border: "1px solid var(--border)", borderRadius: 999, padding: "1px 8px", background: "var(--bg-panel)" }}>
+                {live ? "live" : reconnecting ? `reconnecting (${reconnectAttempts})` : "stopped"}
               </span>
               <span style={{ fontSize: 11, color: "var(--text-dim)", border: "1px solid var(--border)", borderRadius: 999, padding: "1px 8px", background: "var(--bg-panel)" }}>
-                msgs: {visibleMessages.length}
+                {usePiStream ? "stream: pi session" : "stream: issue events"}
               </span>
-              {sessionId ? <span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sessionId}</span> : null}
+              <span style={{ fontSize: 11, color: "var(--text-dim)", border: "1px solid var(--border)", borderRadius: 999, padding: "1px 8px", background: "var(--bg-panel)" }}>
+                msgs: {usePiStream ? visibleMessages.length : lines.length}
+              </span>
+              {usePiStream && sessionId ? <span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sessionId}</span> : null}
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-            {reconnectAttempts >= 5 && <button className="ns-btn" type="button" onClick={reconnectNow} style={btnStyle}>Reconnect</button>}
-            <button className="ns-btn" type="button" onClick={clear} style={btnStyle}>Clear</button>
+            {usePiStream && reconnectAttempts >= 5 && <button className="ns-btn" type="button" onClick={reconnectNow} style={btnStyle}>Reconnect</button>}
+            {usePiStream && <button className="ns-btn" type="button" onClick={clear} style={btnStyle}>Clear</button>}
             <button className="ns-btn" type="button" onClick={onClose} style={btnStyle}>Close</button>
           </div>
         </div>
 
         <div style={{ flex: 1, overflow: "auto", padding: "10px 12px" }}>
-          {!sessionId ? (
-            <div style={{ color: "var(--text-dim)", fontSize: 12 }}>No root session id for this issue yet.</div>
-          ) : visibleMessages.length === 0 ? (
-            <div style={{ color: "var(--text-dim)", fontSize: 12 }}>{isLive ? "Waiting for stream..." : "No events yet."}</div>
+          {usePiStream ? (
+            !sessionId ? (
+              <div style={{ color: "var(--text-dim)", fontSize: 12 }}>No root session id for this issue yet.</div>
+            ) : visibleMessages.length === 0 ? (
+              <div style={{ color: "var(--text-dim)", fontSize: 12 }}>{live ? "Waiting for stream..." : "No events yet."}</div>
+            ) : (
+              visibleMessages.map((msg, i) => (
+                <MessageView
+                  key={`${msg.role}-${i}-${msg.timestamp ?? 0}`}
+                  message={msg}
+                  isStreaming={!!streamingMessage && i === visibleMessages.length - 1 && msg.role === "assistant"}
+                  toolResults={toolResultsMap}
+                  showTimestamp={false}
+                />
+              ))
+            )
+          ) : lines.length === 0 ? (
+            <div style={{ color: "var(--text-dim)", fontSize: 12 }}>{live ? "Waiting for issue events..." : "No issue events yet."}</div>
           ) : (
-            visibleMessages.map((msg, i) => (
-              <MessageView
-                key={`${msg.role}-${i}-${msg.timestamp ?? 0}`}
-                message={msg}
-                isStreaming={!!streamingMessage && i === visibleMessages.length - 1 && msg.role === "assistant"}
-                toolResults={toolResultsMap}
-                showTimestamp={false}
-              />
-            ))
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {lines.map((line) => (
+                <div
+                  key={line.id}
+                  style={{
+                    fontSize: 11,
+                    fontFamily: "var(--font-mono)",
+                    color:
+                      line.severity === "error"
+                        ? "#ef4444"
+                        : line.severity === "warning"
+                          ? "#d97706"
+                          : "var(--text-muted)",
+                  }}
+                >
+                  {line.timestamp ? `${line.timestamp.slice(11, 19)} ` : ""}
+                  {line.text}
+                </div>
+              ))}
+            </div>
+          )}
+          {usePiStream && piError && (
+            <div style={{ color: "#ef4444", fontSize: 11, marginTop: 8 }}>{piError}</div>
           )}
         </div>
       </section>

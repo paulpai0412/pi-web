@@ -542,7 +542,12 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
         />
       )}
 
-      <IssueSseModal card={sseModalCard} onClose={() => setSseModalCard(null)} />
+      <IssueSseModal
+        card={sseModalCard}
+        projectId={board.project.projectId}
+        configPath={configPath}
+        onClose={() => setSseModalCard(null)}
+      />
     </div>
   );
 }

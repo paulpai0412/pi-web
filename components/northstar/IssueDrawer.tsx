@@ -9,7 +9,8 @@ import type {
 
 interface Action {
   label: string;
-  command: string;
+  command: "start" | "reconcile" | "release" | "repair-runtime" | "retry-sync" | "resume";
+  targetLifecycle?: "ready" | "running";
 }
 
 function actionsForCard(card: NorthstarBoardCard): Action[] {
@@ -22,7 +23,11 @@ function actionsForCard(card: NorthstarBoardCard): Action[] {
   else if (lc === "release_pending") actions.push({ label: "Reconcile", command: "reconcile" });
   else if (lc === "exception") actions.push({ label: "Reconcile", command: "reconcile" });
   else if (lc === "failed") actions.push({ label: "Reconcile", command: "reconcile" });
-  else if (lc === "quarantined") actions.push({ label: "Repair runtime", command: "repair-runtime" });
+  else if (lc === "quarantined") {
+    actions.push({ label: "Repair runtime", command: "repair-runtime" });
+    actions.push({ label: "Resume to ready", command: "resume", targetLifecycle: "ready" });
+    actions.push({ label: "Resume to running", command: "resume", targetLifecycle: "running" });
+  }
   if (card.blocked || card.projectionFailure)
     actions.push({ label: "Retry sync", command: "retry-sync" });
   return actions;
@@ -107,30 +112,48 @@ export function IssueDrawer({ card, projectId, configPath, onClose }: Props) {
   }, [card, projectId, configPath]);
 
   const runAction = useCallback(
-    (command: string) => {
+    (action: Action) => {
       if (!card || isRunningAction) return;
-      const url = `/api/northstar/projects/${encodeURIComponent(projectId)}/issues/${encodeURIComponent(card.issueId)}/run?action=${encodeURIComponent(command)}&config=${encodeURIComponent(configPath)}`;
+
+      const params = new URLSearchParams({
+        action: action.command,
+        config: configPath,
+      });
+
+      if (action.command === "resume") {
+        params.set("to", action.targetLifecycle ?? "ready");
+        const reasonRaw = window.prompt("Resume reason (required)", "runtime fix deployed");
+        if (reasonRaw === null) return;
+        const reason = reasonRaw.trim();
+        if (!reason) {
+          setActionStatus("Resume reason is required.");
+          return;
+        }
+        params.set("reason", reason);
+      }
+
+      const url = `/api/northstar/projects/${encodeURIComponent(projectId)}/issues/${encodeURIComponent(card.issueId)}/run?${params.toString()}`;
 
       setIsRunningAction(true);
-      setActionStatus(`Running ${command}...`);
+      setActionStatus(`Running ${action.label}...`);
 
       const es = new EventSource(url);
 
       es.onmessage = (e) => {
         const data = JSON.parse(e.data as string) as { type: string; code?: number; message?: string };
         if (data.type === "exit") {
-          setActionStatus(data.code === 0 ? `${command} completed.` : `${command} failed (exit ${data.code ?? 1}).`);
+          setActionStatus(data.code === 0 ? `${action.label} completed.` : `${action.label} failed (exit ${data.code ?? 1}).`);
           setIsRunningAction(false);
           es.close();
         } else if (data.type === "error") {
-          setActionStatus(data.message ?? `${command} failed.`);
+          setActionStatus(data.message ?? `${action.label} failed.`);
           setIsRunningAction(false);
           es.close();
         }
       };
 
       es.onerror = () => {
-        setActionStatus(`${command} interrupted.`);
+        setActionStatus(`${action.label} interrupted.`);
         setIsRunningAction(false);
         es.close();
       };
@@ -183,9 +206,9 @@ export function IssueDrawer({ card, projectId, configPath, onClose }: Props) {
             {actions.map((action) => (
               <button
                 className="ns-btn"
-                key={action.command}
+                key={`${action.command}:${action.targetLifecycle ?? "none"}`}
                 type="button"
-                onClick={() => runAction(action.command)}
+                onClick={() => runAction(action)}
                 disabled={isRunningAction}
                 style={{ ...btnStyle, opacity: isRunningAction ? 0.5 : 1 }}
               >

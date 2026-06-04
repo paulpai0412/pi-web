@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
 import { existsSync } from "fs";
 import { resolve } from "path";
+import { homedir } from "os";
 
 export const dynamic = "force-dynamic";
 
@@ -13,9 +14,19 @@ const VALID_ACTIONS = [
   "release",
   "repair-runtime",
   "retry-sync",
+  "resume",
 ] as const;
 
 type ValidAction = (typeof VALID_ACTIONS)[number];
+
+function resolveConfigPath(configPath: string): string {
+  const trimmed = configPath.trim();
+  if (trimmed === "~") return homedir();
+  if (trimmed.startsWith("~/") || trimmed.startsWith("~\\")) {
+    return resolve(homedir(), trimmed.slice(2));
+  }
+  return resolve(trimmed);
+}
 
 export async function GET(
   req: Request,
@@ -33,6 +44,8 @@ export async function GET(
   const url = new URL(req.url);
   const action = url.searchParams.get("action");
   const config = url.searchParams.get("config");
+  const resumeTarget = url.searchParams.get("to");
+  const resumeReason = url.searchParams.get("reason");
 
   if (!action || !(VALID_ACTIONS as readonly string[]).includes(action)) {
     return new Response(JSON.stringify({ error: "Invalid action" }), {
@@ -45,6 +58,21 @@ export async function GET(
       status: 400,
       headers: { "Content-Type": "application/json" },
     });
+  }
+
+  if (action === "resume") {
+    if (resumeTarget !== "ready" && resumeTarget !== "running") {
+      return new Response(JSON.stringify({ error: "resume target must be ready or running" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (!resumeReason || resumeReason.trim().length === 0) {
+      return new Response(JSON.stringify({ error: "resume reason is required" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
   }
   // Reject paths with traversal sequences
   if (config.includes("..")) {
@@ -61,7 +89,7 @@ export async function GET(
     });
   }
   // Verify file exists
-  const resolvedConfig = resolve(config);
+  const resolvedConfig = resolveConfigPath(config);
   if (!existsSync(resolvedConfig)) {
     return new Response(JSON.stringify({ error: "Config file not found" }), {
       status: 400,
@@ -71,10 +99,15 @@ export async function GET(
 
   const tsx = resolve(NORTHSTAR_ROOT, "node_modules/.bin/tsx");
   const entrypoint = resolve(NORTHSTAR_ROOT, "src/cli/entrypoint.ts");
+  const validAction = action as ValidAction;
   const cliArgs = [
     entrypoint,
-    action as ValidAction,
-    `--issue=${issueId}`,
+    validAction,
+    "--issue",
+    issueId,
+    ...(validAction === "resume"
+      ? ["--to", resumeTarget as "ready" | "running", "--reason", (resumeReason as string).trim()]
+      : []),
     "--config",
     resolvedConfig,
   ];
