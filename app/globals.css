@@ -101,6 +101,22 @@ body {
   background: var(--text-dim);
 }
 
+.northstar-state-scroll {
+  scrollbar-width: none;
+}
+.northstar-state-column:hover .northstar-state-scroll {
+  scrollbar-width: thin;
+}
+.northstar-state-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+.northstar-state-column:hover .northstar-state-scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+}
+.northstar-state-column:hover .northstar-state-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
+}
+
 :root {
   --font-mono: var(--font-noto-mono), 'JetBrains Mono', 'Fira Code', 'Consolas', ui-monospace, 'PingFang SC', 'Microsoft YaHei', monospace;
 }
@@ -350,5 +366,4 @@ span.linenumber {
 .ns-surface-interactive:hover {
   background: var(--bg-hover) !important;
 }
-
 

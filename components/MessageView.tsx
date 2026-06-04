@@ -522,6 +522,11 @@ function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCal
 }
 
 function TextBlock({ block }: { block: TextContent }) {
+  const artifactJson = parseArtifactJson(block.text);
+  if (artifactJson) {
+    return <ArtifactJsonBlock json={artifactJson.json} value={artifactJson.value} />;
+  }
+
   return (
     <div className="markdown-body">
       <ReactMarkdown
@@ -559,6 +564,124 @@ function TextBlock({ block }: { block: TextContent }) {
       </ReactMarkdown>
     </div>
   );
+}
+
+function ArtifactJsonBlock({ json, value }: { json: string; value: Record<string, unknown> }) {
+  const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const summary = artifactJsonSummary(value);
+
+  const copy = () => {
+    copyText(json).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
+  return (
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: 7,
+        overflow: "hidden",
+        background: "var(--bg-panel)",
+        fontSize: 12,
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          width: "100%",
+          padding: "7px 10px",
+          border: "none",
+          background: "var(--bg-panel)",
+          color: "var(--text-muted)",
+          cursor: "pointer",
+          textAlign: "left",
+          minWidth: 0,
+        }}
+      >
+        <span style={{ color: "var(--accent)", fontWeight: 650, fontSize: 11, flexShrink: 0 }}>
+          Artifact JSON
+        </span>
+        <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
+          {summary}
+        </span>
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
+          <polyline points="2 3.5 5 6.5 8 3.5" />
+        </svg>
+      </button>
+      {expanded && (
+        <div style={{ borderTop: "1px solid var(--border)", background: "var(--bg)" }}>
+          <div style={{ display: "flex", justifyContent: "flex-end", padding: "4px 8px 0" }}>
+            <button
+              type="button"
+              onClick={copy}
+              style={{
+                border: "none",
+                background: "none",
+                color: copied ? "var(--accent)" : "var(--text-muted)",
+                cursor: "pointer",
+                fontSize: 11,
+              }}
+            >
+              {copied ? "copied" : "copy"}
+            </button>
+          </div>
+          <pre
+            style={{
+              margin: 0,
+              padding: "4px 10px 10px",
+              color: "var(--text-muted)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 12,
+              lineHeight: 1.55,
+              overflow: "auto",
+              maxHeight: 420,
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+            }}
+          >
+            {json}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function parseArtifactJson(text: string): { value: Record<string, unknown>; json: string } | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
+  try {
+    const value = JSON.parse(trimmed) as unknown;
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const record = value as Record<string, unknown>;
+    if (typeof record.schema_version !== "string" || typeof record.artifact_kind !== "string") return null;
+    return { value: record, json: JSON.stringify(record, null, 2) };
+  } catch {
+    return null;
+  }
+}
+
+function artifactJsonSummary(value: Record<string, unknown>): string {
+  const parts = [
+    String(value.artifact_kind ?? "artifact"),
+    typeof value.status === "string" ? value.status : undefined,
+    value.issue_number !== undefined ? `issue #${String(value.issue_number)}` : undefined,
+    objectNumber(value.pr) !== undefined ? `PR #${objectNumber(value.pr)}` : undefined,
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
+
+function objectNumber(value: unknown): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const numberValue = (value as { number?: unknown }).number;
+  return numberValue === undefined ? undefined : String(numberValue);
 }
 
 function ThinkingBlock({ block, duration }: { block: ThinkingContent; duration?: number }) {
@@ -835,5 +958,4 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
     </div>
   );
 }
-
 

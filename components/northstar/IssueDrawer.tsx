@@ -20,7 +20,8 @@ function actionsForCard(card: NorthstarBoardCard): Action[] {
   else if (lc === "claimed" || lc === "running" || lc === "verifying")
     actions.push({ label: "Reconcile", command: "reconcile" });
   else if (lc === "verified") actions.push({ label: "🚀 Release", command: "release" });
-  else if (lc === "release_pending") actions.push({ label: "Reconcile", command: "reconcile" });
+  else if (lc === "release_pending") actions.push({ label: "Approve Release", command: "release" });
+  else if (lc === "releasing") actions.push({ label: "Reconcile", command: "reconcile" });
   else if (lc === "exception") actions.push({ label: "Reconcile", command: "reconcile" });
   else if (lc === "failed") actions.push({ label: "Reconcile", command: "reconcile" });
   else if (lc === "quarantined") {

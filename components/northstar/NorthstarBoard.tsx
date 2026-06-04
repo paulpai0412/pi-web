@@ -15,7 +15,7 @@ import { WatchSsePanel } from "./WatchSsePanel";
 
 const LIFECYCLE_ORDER: NorthstarLifecycleState[] = [
   "ready", "claimed", "running", "verifying", "verified",
-  "release_pending", "exception", "completed", "cancelled", "failed", "quarantined",
+  "release_pending", "releasing", "exception", "completed", "cancelled", "failed", "quarantined",
 ];
 
 const PENDING_STATES: NorthstarLifecycleState[] = [
@@ -25,6 +25,7 @@ const PENDING_STATES: NorthstarLifecycleState[] = [
   "verifying",
   "verified",
   "release_pending",
+  "releasing",
   "exception",
 ];
 
@@ -32,7 +33,7 @@ const CONFIG_SUFFIX = "/.northstar.yaml";
 
 const DEFAULT_WATCH_PROMPT = [
   "請啟動 northstar skill watch，持續推進目前專案待處理 issue。",
-  "規則：持續循環執行直到我明確要求停止，或已無待處理 issue（ready/claimed/running/verifying/verified/release_pending/exception 皆為 0）。",
+  "規則：持續循環執行直到我明確要求停止，或已無待處理 issue（ready/claimed/running/verifying/verified/release_pending/releasing/exception 皆為 0）。",
   "每輪請簡短回報目前進度、卡住原因與下一步。",
 ].join("\n");
 
@@ -304,13 +305,13 @@ function Column({ lifecycle, cards, repo, initiallyCollapsed, onCardClick, onOpe
   }
 
   return (
-    <section style={{ display: "flex", flexDirection: "column", minWidth: 220, maxWidth: 280, flex: "1 1 220px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg)", maxHeight: "100%" }}>
+    <section className="northstar-state-column" style={{ display: "flex", flexDirection: "column", minWidth: 220, maxWidth: 280, flex: "1 1 220px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg)", maxHeight: "100%" }}>
       <div className="ns-surface-interactive" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderBottom: "1px solid var(--border)", cursor: "pointer", flexShrink: 0 }}
         onClick={() => setCollapsed(true)}>
         <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", textTransform: "capitalize" }}>{label}</span>
         <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{cards.length}</span>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 8, overflow: "auto" }}>
+      <div className="northstar-state-scroll" style={{ display: "flex", flexDirection: "column", gap: 8, padding: 8, overflow: "auto" }}>
         {sorted.length === 0
           ? <div style={{ fontSize: 12, color: "var(--text-dim)", padding: "4px 2px" }}>No issues</div>
           : sorted.map((card) => (

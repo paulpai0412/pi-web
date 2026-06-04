@@ -74,23 +74,23 @@ export function IssueSseModal({ card, projectId, configPath, onClose }: Props) {
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.38)", zIndex: 1200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
     >
       <section style={{ width: "min(920px, 96vw)", height: "min(70vh, 700px)", border: "1px solid var(--border)", borderRadius: 8, background: "var(--bg)", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.22)" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "10px 12px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
-          <div style={{ minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {issueLabel} SSE Stream
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
-              <span style={{ fontSize: 11, color: live ? "#16a34a" : reconnecting ? "#d97706" : "var(--text-muted)", border: "1px solid var(--border)", borderRadius: 999, padding: "1px 8px", background: "var(--bg-panel)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2, minWidth: 0 }}>
+              <span style={{ ...badgeStyle, color: live ? "#16a34a" : reconnecting ? "#d97706" : "var(--text-muted)" }}>
                 {live ? "live" : reconnecting ? `reconnecting (${reconnectAttempts})` : "stopped"}
               </span>
-              <span style={{ fontSize: 11, color: "var(--text-dim)", border: "1px solid var(--border)", borderRadius: 999, padding: "1px 8px", background: "var(--bg-panel)" }}>
+              <span style={{ ...badgeStyle, minWidth: 118 }}>
                 {useSessionStream ? `stream: ${streamAdapter} session` : "stream: issue events"}
               </span>
-              <span style={{ fontSize: 11, color: "var(--text-dim)", border: "1px solid var(--border)", borderRadius: 999, padding: "1px 8px", background: "var(--bg-panel)" }}>
+              <span style={{ ...badgeStyle, minWidth: 68 }}>
                 msgs: {useSessionStream ? visibleMessages.length : lines.length}
               </span>
-              {useSessionStream && sessionId ? <span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sessionId}</span> : null}
-              {card.activeStreamChildRunId ? <span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>child: {card.activeStreamChildRunId}</span> : null}
+              {useSessionStream && sessionId ? <span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 140, maxWidth: 230 }}>{sessionId}</span> : null}
+              {card.activeStreamChildRunId ? <span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>child: {card.activeStreamChildRunId}</span> : null}
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
@@ -160,4 +160,16 @@ const btnStyle: React.CSSProperties = {
   color: "var(--text)",
   cursor: "pointer",
   transition: "background 140ms ease, border-color 140ms ease, color 140ms ease",
+};
+
+const badgeStyle: React.CSSProperties = {
+  flexShrink: 0,
+  fontSize: 11,
+  color: "var(--text-dim)",
+  border: "1px solid var(--border)",
+  borderRadius: 999,
+  padding: "1px 8px",
+  background: "var(--bg-panel)",
+  whiteSpace: "nowrap",
+  textAlign: "center",
 };
