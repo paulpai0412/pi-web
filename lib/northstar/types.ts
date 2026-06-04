@@ -63,6 +63,9 @@ export interface NorthstarBoardCard {
   mergeSha: string | null;
   latestRootSessionId: string | null;
   latestChildRunId: string | null;
+  activeStreamAdapter: NorthstarHostAdapter | null;
+  activeStreamSessionId: string | null;
+  activeStreamChildRunId: string | null;
   lastHeartbeatAt: string | null;
   nextRecommendedAction: string;
   projectionFailure: boolean;
@@ -83,6 +86,8 @@ export interface NorthstarSessionLink {
   rootSessionId: string;
   childRunId: string;
   sessionId: string;
+  streamAdapter: NorthstarHostAdapter | null;
+  streamSessionId: string | null;
   href: string | null;
 }
 

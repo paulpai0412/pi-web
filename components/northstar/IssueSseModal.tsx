@@ -32,8 +32,8 @@ function buildToolResultsMap(messages: AgentMessage[]): Map<string, ToolResultMe
 }
 
 export function IssueSseModal({ card, projectId, configPath, onClose }: Props) {
-  const sessionId = card?.latestRootSessionId ?? null;
-  const streamAdapter = sessionStreamAdapter(card?.latestHostAdapter ?? null);
+  const sessionId = card?.activeStreamSessionId ?? card?.latestRootSessionId ?? null;
+  const streamAdapter = sessionStreamAdapter(card?.activeStreamAdapter ?? card?.latestHostAdapter ?? null);
   const useSessionStream = !!streamAdapter && !!sessionId;
   const {
     messages,
@@ -90,6 +90,7 @@ export function IssueSseModal({ card, projectId, configPath, onClose }: Props) {
                 msgs: {useSessionStream ? visibleMessages.length : lines.length}
               </span>
               {useSessionStream && sessionId ? <span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sessionId}</span> : null}
+              {card.activeStreamChildRunId ? <span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>child: {card.activeStreamChildRunId}</span> : null}
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
