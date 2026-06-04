@@ -12,6 +12,7 @@ export type NorthstarLifecycleState =
   | "verifying"
   | "verified"
   | "release_pending"
+  | "exception"
   | "completed"
   | "cancelled"
   | "failed"

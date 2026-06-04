@@ -11,6 +11,8 @@ integration can be re-applied after a pi-web upgrade with minimal effort.
   - `components/northstar/` — `NorthstarBoard.tsx`, `WorkspaceTabs.tsx`, `workspace-views.tsx`
   - `lib/northstar/` — `server-client.ts`, `local-api-loader.js`, `types.ts`
   - `app/api/northstar/` — API routes
+
+- **Source of truth for board UI is `apps/pi-web/components/northstar/`**. `apps/northstar/integrations/pi-web/components/` is reference coverage for Northstar-side integration tests and must not be edited as the primary UI implementation.
 - **No new npm dependencies** — `package.json` / lockfile do not diverge.
 - The board talks only to the existing `/api/northstar/*` routes, which proxy to the
   real Northstar install. UI and data are decoupled.
@@ -60,8 +62,8 @@ is impossible because this Node build has no TypeScript support and `apps/norths
 ships no compiled JS. Bypassing the orchestrator sidesteps all of that — and the board
 only ever needs `getBoard()` (a SQLite read), never the agent-runner the SDK is for.
 
-`getIssue` / `listIssueEvents` / `getWizard` / `runIssueAction` / `runWizardAction`
-throw "not available in board-only mode" — the board UI never calls them.
+`getIssue` and `listIssueEvents` are supported in board-only mode (used by `IssueDrawer` and SSE details).
+`getWizard` / `runIssueAction` / `runWizardAction` throw "not available in board-only mode" and are intentionally unsupported by this loader.
 
 `lib/northstar/server-client.ts` selects the **data** (which project / runtime DB) per
 request from `?config=<cwd>/.northstar.yaml` (or the `NORTHSTAR_CONFIG` env var). The

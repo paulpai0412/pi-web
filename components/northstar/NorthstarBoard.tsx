@@ -15,7 +15,7 @@ import { WatchSsePanel } from "./WatchSsePanel";
 
 const LIFECYCLE_ORDER: NorthstarLifecycleState[] = [
   "ready", "claimed", "running", "verifying", "verified",
-  "release_pending", "completed", "cancelled", "failed", "quarantined",
+  "release_pending", "exception", "completed", "cancelled", "failed", "quarantined",
 ];
 
 const PENDING_STATES: NorthstarLifecycleState[] = [
@@ -25,13 +25,14 @@ const PENDING_STATES: NorthstarLifecycleState[] = [
   "verifying",
   "verified",
   "release_pending",
+  "exception",
 ];
 
 const CONFIG_SUFFIX = "/.northstar.yaml";
 
 const DEFAULT_WATCH_PROMPT = [
   "請啟動 northstar skill watch，持續推進目前專案待處理 issue。",
-  "規則：持續循環執行直到我明確要求停止，或已無待處理 issue（ready/claimed/running/verifying/verified/release_pending 皆為 0）。",
+  "規則：持續循環執行直到我明確要求停止，或已無待處理 issue（ready/claimed/running/verifying/verified/release_pending/exception 皆為 0）。",
   "每輪請簡短回報目前進度、卡住原因與下一步。",
 ].join("\n");
 
@@ -61,6 +62,7 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
 
 function isProblem(card: NorthstarBoardCard): "red" | "orange" | null {
   if (card.lifecycle === "quarantined" || card.lifecycle === "failed") return "red";
+  if (card.lifecycle === "exception") return "orange";
   if (card.blocked || card.projectionFailure) return "orange";
   return null;
 }
@@ -440,10 +442,11 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
     </div>
   );
   if (!board) return <div style={centeredStyle}>No Northstar board loaded.</div>;
-
   const allCards = board.groups.flatMap((g) => g.cards);
   const redCount = allCards.filter((c) => c.lifecycle === "quarantined" || c.lifecycle === "failed").length;
-  const orangeCount = allCards.filter((c) => (c.blocked || c.projectionFailure) && c.lifecycle !== "quarantined" && c.lifecycle !== "failed").length;
+  const orangeCount = allCards.filter((c) =>
+    c.lifecycle === "exception" || ((c.blocked || c.projectionFailure) && c.lifecycle !== "quarantined" && c.lifecycle !== "failed")
+  ).length;
   const problemCount = redCount + orangeCount;
 
   const cardsByLifecycle = new Map(board.groups.map((g) => [g.lifecycle, g.cards]));

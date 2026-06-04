@@ -20,6 +20,7 @@ function actionsForCard(card: NorthstarBoardCard): Action[] {
     actions.push({ label: "Reconcile", command: "reconcile" });
   else if (lc === "verified") actions.push({ label: "🚀 Release", command: "release" });
   else if (lc === "release_pending") actions.push({ label: "Reconcile", command: "reconcile" });
+  else if (lc === "exception") actions.push({ label: "Reconcile", command: "reconcile" });
   else if (lc === "failed") actions.push({ label: "Reconcile", command: "reconcile" });
   else if (lc === "quarantined") actions.push({ label: "Repair runtime", command: "repair-runtime" });
   if (card.blocked || card.projectionFailure)
@@ -44,7 +45,7 @@ const drawerStyle: React.CSSProperties = {
   borderLeft: "1px solid var(--border)",
   display: "flex",
   flexDirection: "column",
-  zIndex: 100,
+  zIndex: 1200,
   boxShadow: "-4px 0 16px rgba(0,0,0,0.15)",
   overflow: "hidden",
 };
