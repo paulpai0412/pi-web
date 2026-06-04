@@ -1,6 +1,7 @@
 import "server-only";
 
 import { resolve } from "path";
+import { homedir } from "os";
 
 import { createNorthstarLocalApi } from "./local-api-loader";
 
@@ -14,6 +15,15 @@ export interface NorthstarServerApi {
   runWizardAction(request: Record<string, unknown>): unknown;
 }
 
+
+function resolveConfigPath(configPath: string): string {
+  const trimmed = configPath.trim();
+  if (trimmed === "~") return homedir();
+  if (trimmed.startsWith("~/") || trimmed.startsWith("~\\")) {
+    return resolve(homedir(), trimmed.slice(2));
+  }
+  return resolve(trimmed);
+}
 // The Northstar source location is fixed at build time by the relative import in
 // local-api-loader.js (it is bundled by webpack). The *data* — which project and
 // runtime DB — is selected per request by the config path below.
@@ -23,5 +33,5 @@ export async function getNorthstarServerApi(request: Request): Promise<Northstar
   if (!configPath) {
     throw new Error("NORTHSTAR_CONFIG is required");
   }
-  return createNorthstarLocalApi({ configPath: resolve(configPath) });
+  return createNorthstarLocalApi({ configPath: resolveConfigPath(configPath) });
 }

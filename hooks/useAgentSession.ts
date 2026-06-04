@@ -368,14 +368,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           }),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const result = await res.json() as { sessionId: string };
+        const result = await res.json() as { sessionId: string; cwd?: string };
         const realId = result.sessionId;
+        const resolvedCwd = result.cwd ?? newSessionCwd;
         sessionIdRef.current = realId;
         connectEvents(realId);
         onSessionCreated?.({
           id: realId,
           path: "",
-          cwd: newSessionCwd,
+          cwd: resolvedCwd,
           name: undefined,
           created: new Date().toISOString(),
           modified: new Date().toISOString(),

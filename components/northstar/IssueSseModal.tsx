@@ -16,6 +16,11 @@ interface Props {
   onClose: () => void;
 }
 
+function sessionStreamAdapter(adapter: NorthstarBoardCard["latestHostAdapter"]): "pi" | "codex" | "opencode" | null {
+  if (adapter === "pi" || adapter === "codex" || adapter === "opencode") return adapter;
+  return null;
+}
+
 function buildToolResultsMap(messages: AgentMessage[]): Map<string, ToolResultMessage> {
   const map = new Map<string, ToolResultMessage>();
   for (const msg of messages) {
@@ -28,7 +33,8 @@ function buildToolResultsMap(messages: AgentMessage[]): Map<string, ToolResultMe
 
 export function IssueSseModal({ card, projectId, configPath, onClose }: Props) {
   const sessionId = card?.latestRootSessionId ?? null;
-  const usePiStream = card?.latestHostAdapter === "pi" && !!sessionId;
+  const streamAdapter = sessionStreamAdapter(card?.latestHostAdapter ?? null);
+  const useSessionStream = !!streamAdapter && !!sessionId;
   const {
     messages,
     streamingMessage,
@@ -38,12 +44,12 @@ export function IssueSseModal({ card, projectId, configPath, onClose }: Props) {
     reconnectNow,
     clear,
     error: piError,
-  } = usePiSessionSse(usePiStream ? sessionId : null);
+  } = usePiSessionSse(useSessionStream ? sessionId : null, streamAdapter ?? "pi");
   const eventsUrl = card
     ? `/api/northstar/projects/${encodeURIComponent(projectId)}/issues/${encodeURIComponent(card.issueId)}/events?config=${encodeURIComponent(configPath)}`
     : "";
   const { lines, isLive: pollLive } = useIssueStream(
-    card && !usePiStream ? { type: "poll", eventsUrl } : { type: "idle" },
+    card && !useSessionStream ? { type: "poll", eventsUrl } : { type: "idle" },
   );
 
   const visibleMessages = useMemo(() => {
@@ -57,8 +63,8 @@ export function IssueSseModal({ card, projectId, configPath, onClose }: Props) {
   if (!card) return null;
 
   const issueLabel = card.issueNumber ? `#${card.issueNumber}` : card.issueId;
-  const live = usePiStream ? piLive : pollLive;
-  const reconnecting = usePiStream ? isReconnecting : false;
+  const live = useSessionStream ? piLive : pollLive;
+  const reconnecting = useSessionStream ? isReconnecting : false;
 
   return (
     <div
@@ -78,23 +84,23 @@ export function IssueSseModal({ card, projectId, configPath, onClose }: Props) {
                 {live ? "live" : reconnecting ? `reconnecting (${reconnectAttempts})` : "stopped"}
               </span>
               <span style={{ fontSize: 11, color: "var(--text-dim)", border: "1px solid var(--border)", borderRadius: 999, padding: "1px 8px", background: "var(--bg-panel)" }}>
-                {usePiStream ? "stream: pi session" : "stream: issue events"}
+                {useSessionStream ? `stream: ${streamAdapter} session` : "stream: issue events"}
               </span>
               <span style={{ fontSize: 11, color: "var(--text-dim)", border: "1px solid var(--border)", borderRadius: 999, padding: "1px 8px", background: "var(--bg-panel)" }}>
-                msgs: {usePiStream ? visibleMessages.length : lines.length}
+                msgs: {useSessionStream ? visibleMessages.length : lines.length}
               </span>
-              {usePiStream && sessionId ? <span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sessionId}</span> : null}
+              {useSessionStream && sessionId ? <span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sessionId}</span> : null}
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-            {usePiStream && reconnectAttempts >= 5 && <button className="ns-btn" type="button" onClick={reconnectNow} style={btnStyle}>Reconnect</button>}
-            {usePiStream && <button className="ns-btn" type="button" onClick={clear} style={btnStyle}>Clear</button>}
+            {useSessionStream && reconnectAttempts >= 5 && <button className="ns-btn" type="button" onClick={reconnectNow} style={btnStyle}>Reconnect</button>}
+            {useSessionStream && <button className="ns-btn" type="button" onClick={clear} style={btnStyle}>Clear</button>}
             <button className="ns-btn" type="button" onClick={onClose} style={btnStyle}>Close</button>
           </div>
         </div>
 
         <div style={{ flex: 1, overflow: "auto", padding: "10px 12px" }}>
-          {usePiStream ? (
+          {useSessionStream ? (
             !sessionId ? (
               <div style={{ color: "var(--text-dim)", fontSize: 12 }}>No root session id for this issue yet.</div>
             ) : visibleMessages.length === 0 ? (
@@ -134,7 +140,7 @@ export function IssueSseModal({ card, projectId, configPath, onClose }: Props) {
               ))}
             </div>
           )}
-          {usePiStream && piError && (
+          {useSessionStream && piError && (
             <div style={{ color: "#ef4444", fontSize: 11, marginTop: 8 }}>{piError}</div>
           )}
         </div>

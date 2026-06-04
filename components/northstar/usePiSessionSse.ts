@@ -12,6 +12,8 @@ type AgentEvent = {
   errorMessage?: string;
 };
 
+type SessionSseAdapter = "pi" | "codex" | "opencode";
+
 function createStreamingAssistantWithDelta(delta: string): AssistantMessage {
   return {
     role: "assistant",
@@ -36,7 +38,7 @@ function appendDeltaToAssistant(msg: AssistantMessage, delta: string): Assistant
   return { ...msg, content };
 }
 
-export function usePiSessionSse(sessionId: string | null) {
+export function usePiSessionSse(sessionId: string | null, adapter: SessionSseAdapter = "pi") {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [streamingMessage, setStreamingMessage] = useState<AssistantMessage | null>(null);
   const [isLive, setIsLive] = useState(false);
@@ -81,7 +83,11 @@ export function usePiSessionSse(sessionId: string | null) {
     const connect = () => {
       if (disposed || !sessionId || stopRef.current) return;
 
-      const url = `/api/agent/${encodeURIComponent(sessionId)}/events`;
+      const url = adapter === "codex"
+        ? `/api/codex/${encodeURIComponent(sessionId)}/events`
+        : adapter === "opencode"
+          ? `/api/opencode/${encodeURIComponent(sessionId)}/events`
+        : `/api/agent/${encodeURIComponent(sessionId)}/events`;
       const es = new EventSource(url);
       esRef.current = es;
 
@@ -162,7 +168,7 @@ export function usePiSessionSse(sessionId: string | null) {
       setIsLive(false);
       setIsReconnecting(false);
     };
-  }, [reconnectNonce, sessionId]);
+  }, [adapter, reconnectNonce, sessionId]);
 
   return {
     messages,
