@@ -108,6 +108,7 @@ function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAs
   const time = formatTime(message.timestamp);
   const canFork = !!entryId && !!onFork;
   const canNavigate = !!prevAssistantEntryId && !!onNavigate;
+  const shouldCollapsePrompt = content.length > 900 || content.split(/\r?\n/).length > 12;
 
   const copyContent = () => {
     copyText(content).then(() => {
@@ -163,7 +164,9 @@ function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAs
               })}
             </div>
           )}
-          {content}
+          {content && (
+            shouldCollapsePrompt ? <PromptBlock text={content} /> : <>{content}</>
+          )}
         </div>
 
       </div>
@@ -277,6 +280,78 @@ function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAs
       )}
     </div>
   );
+}
+
+function PromptBlock({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const preview = promptPreview(text);
+
+  return (
+    <div
+      style={{
+        borderRadius: 7,
+        overflow: "hidden",
+        fontSize: 12,
+        border: "1px solid rgba(14,165,233,0.32)",
+        background: "rgba(14,165,233,0.06)",
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 7,
+          width: "100%",
+          padding: "6px 10px",
+          background: "none",
+          border: "none",
+          color: "var(--text-muted)",
+          cursor: "pointer",
+          fontSize: 12,
+          textAlign: "left",
+          minWidth: 0,
+        }}
+      >
+        <span style={{ color: "#0284c7", fontFamily: "var(--font-mono)", fontWeight: 700, fontSize: 11, flexShrink: 0 }}>
+          Prompt
+        </span>
+        <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
+          {preview}
+        </span>
+        <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
+          {text.length.toLocaleString()} chars
+        </span>
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
+          <polyline points="2 3.5 5 6.5 8 3.5" />
+        </svg>
+      </button>
+      {expanded && (
+        <pre
+          style={{
+            margin: 0,
+            padding: "8px 10px",
+            color: "var(--text-muted)",
+            fontSize: 12,
+            lineHeight: 1.5,
+            overflow: "auto",
+            background: "rgba(14,165,233,0.035)",
+            borderTop: "1px solid rgba(14,165,233,0.22)",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+          }}
+        >
+          {text}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function promptPreview(text: string): string {
+  const compact = text.replace(/\s+/g, " ").trim();
+  return compact.length > 160 ? `${compact.slice(0, 160).trimEnd()}...` : compact;
 }
 
 function AssistantMessageView({
@@ -958,4 +1033,3 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
     </div>
   );
 }
-

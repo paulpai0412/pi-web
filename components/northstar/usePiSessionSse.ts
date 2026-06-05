@@ -14,6 +14,12 @@ type AgentEvent = {
 
 type SessionSseAdapter = "pi" | "codex" | "opencode";
 
+type SessionResponse = {
+  context?: {
+    messages?: AgentMessage[];
+  };
+};
+
 function createStreamingAssistantWithDelta(delta: string): AssistantMessage {
   return {
     role: "assistant",
@@ -79,6 +85,21 @@ export function usePiSessionSse(sessionId: string | null, adapter: SessionSseAda
 
     let disposed = false;
     let attempts = 0;
+
+    if (adapter === "pi") {
+      fetch(`/api/sessions/${encodeURIComponent(sessionId)}`)
+        .then(async (res) => {
+          const body = (await res.json()) as SessionResponse;
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return body.context?.messages ?? [];
+        })
+        .then((history) => {
+          if (!disposed) setMessages(history.map(normalizeToolCalls));
+        })
+        .catch((loadError) => {
+          if (!disposed) setError(`Session history unavailable: ${loadError}`);
+        });
+    }
 
     const connect = () => {
       if (disposed || !sessionId || stopRef.current) return;
