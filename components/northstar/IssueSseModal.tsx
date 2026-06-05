@@ -194,6 +194,13 @@ function buildSessionTargets(card: NorthstarBoardCard, detail: NorthstarIssueDet
   return targets;
 }
 
+function preferredIssueSseTarget(targets: IssueSseTarget[]): IssueSseTarget | null {
+  return targets.find((target) => target.type === "session" && target.label.startsWith("live ")) ??
+    targets.find((target) => target.type === "session") ??
+    targets[0] ??
+    null;
+}
+
 function buildToolResultsMap(messages: AgentMessage[]): Map<string, ToolResultMessage> {
   const map = new Map<string, ToolResultMessage>();
   for (const msg of messages) {
@@ -208,6 +215,7 @@ export function IssueSseModal({ card, projectId, configPath, onClose }: Props) {
   const [detail, setDetail] = useState<NorthstarIssueDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [selectedTargetKey, setSelectedTargetKey] = useState<string | null>(null);
+  const [targetTouched, setTargetTouched] = useState(false);
   const cardIssueId = card?.issueId ?? null;
 
   useEffect(() => {
@@ -215,6 +223,7 @@ export function IssueSseModal({ card, projectId, configPath, onClose }: Props) {
       setDetail(null);
       setDetailError(null);
       setSelectedTargetKey(null);
+      setTargetTouched(false);
       return;
     }
 
@@ -222,6 +231,7 @@ export function IssueSseModal({ card, projectId, configPath, onClose }: Props) {
     setDetail(null);
     setDetailError(null);
     setSelectedTargetKey(null);
+    setTargetTouched(false);
     const url = `/api/northstar/projects/${encodeURIComponent(projectId)}/issues/${encodeURIComponent(cardIssueId)}?config=${encodeURIComponent(configPath)}`;
     fetch(url)
       .then(async (res) => {
@@ -242,9 +252,19 @@ export function IssueSseModal({ card, projectId, configPath, onClose }: Props) {
   }, [cardIssueId, configPath, projectId]);
 
   const targets = useMemo(() => (card ? buildSessionTargets(card, detail) : []), [card, detail]);
+
+  useEffect(() => {
+    const preferred = preferredIssueSseTarget(targets);
+    if (!preferred) return;
+    const current = targets.find((target) => target.key === selectedTargetKey);
+    if (!current || (!targetTouched && current.key !== preferred.key)) {
+      setSelectedTargetKey(preferred.key);
+    }
+  }, [selectedTargetKey, targetTouched, targets]);
+
   const selectedTarget = useMemo(() => {
     if (targets.length === 0) return null;
-    return targets.find((target) => target.key === selectedTargetKey) ?? targets[0];
+    return targets.find((target) => target.key === selectedTargetKey) ?? preferredIssueSseTarget(targets);
   }, [selectedTargetKey, targets]);
 
   const useSessionStream = selectedTarget?.type === "session";
@@ -322,7 +342,10 @@ export function IssueSseModal({ card, projectId, configPath, onClose }: Props) {
           <select
             id="issue-sse-target"
             value={selectedTarget?.key ?? ""}
-            onChange={(event) => setSelectedTargetKey(event.target.value)}
+            onChange={(event) => {
+              setTargetTouched(true);
+              setSelectedTargetKey(event.target.value);
+            }}
             style={{
               flex: 1,
               minWidth: 0,
