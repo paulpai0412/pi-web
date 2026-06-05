@@ -43,6 +43,10 @@ function apiPath(path: string, configPath: string) {
   return `${path}?config=${encodeURIComponent(configPath)}`;
 }
 
+function watchPromptStorageKey(configPath: string) {
+  return `northstar.watchPrompt:${configPath}`;
+}
+
 async function readJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
   const payload = (await res.json()) as T & { error?: string };
@@ -135,6 +139,15 @@ function StreamIcon() {
       <path d="M7.76 16.24a6 6 0 0 1 0-8.48" />
       <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
       <path d="M4.93 19.07a10 10 0 0 1 0-14.14" />
+    </svg>
+  );
+}
+
+function EditIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={iconStroke}>
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
     </svg>
   );
 }
@@ -342,6 +355,9 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
   const [watchError, setWatchError] = useState<string | null>(null);
   const [watchPanelOpen, setWatchPanelOpen] = useState(false);
   const [watchPanelHeight, setWatchPanelHeight] = useState(220);
+  const [watchPrompt, setWatchPrompt] = useState(DEFAULT_WATCH_PROMPT);
+  const [watchPromptDraft, setWatchPromptDraft] = useState(DEFAULT_WATCH_PROMPT);
+  const [watchPromptEditorOpen, setWatchPromptEditorOpen] = useState(false);
 
   const [sseModalCard, setSseModalCard] = useState<NorthstarBoardCard | null>(null);
 
@@ -399,7 +415,7 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
       const payload = await postJson<{ success: boolean; sessionId: string }>("/api/agent/new", {
         cwd,
         type: "prompt",
-        message: DEFAULT_WATCH_PROMPT,
+        message: watchPrompt.trim() || DEFAULT_WATCH_PROMPT,
       });
       setWatchSessionId(payload.sessionId);
       setWatchActive(true);
@@ -409,11 +425,50 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
     } finally {
       setWatchBusy(false);
     }
-  }, [configPath]);
+  }, [configPath, watchPrompt]);
+
+  const openWatchPromptEditor = useCallback(() => {
+    setWatchPromptDraft(watchPrompt);
+    setWatchPromptEditorOpen(true);
+  }, [watchPrompt]);
+
+  const saveWatchPrompt = useCallback(() => {
+    if (!configPath) return;
+    const next = watchPromptDraft.trim();
+    if (!next) return;
+    setWatchPrompt(next);
+    try {
+      window.localStorage.setItem(watchPromptStorageKey(configPath), next);
+    } catch {
+      // Browser storage may be unavailable; keep the in-memory prompt for this tab.
+    }
+    setWatchPromptEditorOpen(false);
+  }, [configPath, watchPromptDraft]);
+
+  const resetWatchPrompt = useCallback(() => {
+    setWatchPromptDraft(DEFAULT_WATCH_PROMPT);
+  }, []);
 
   useEffect(() => {
     void load(configPath);
   }, [configPath, load]);
+
+  useEffect(() => {
+    if (!configPath) {
+      setWatchPrompt(DEFAULT_WATCH_PROMPT);
+      setWatchPromptDraft(DEFAULT_WATCH_PROMPT);
+      return;
+    }
+    try {
+      const stored = window.localStorage.getItem(watchPromptStorageKey(configPath));
+      const next = stored?.trim() ? stored : DEFAULT_WATCH_PROMPT;
+      setWatchPrompt(next);
+      setWatchPromptDraft(next);
+    } catch {
+      setWatchPrompt(DEFAULT_WATCH_PROMPT);
+      setWatchPromptDraft(DEFAULT_WATCH_PROMPT);
+    }
+  }, [configPath]);
 
   useEffect(() => {
     if (!autoRefreshEnabled || !configPath) return;
@@ -490,11 +545,61 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
               <StopIcon />
             </button>
           )}
+          <button className="ns-btn" type="button" title="Edit monitor prompt" aria-label="Edit monitor prompt" onClick={openWatchPromptEditor} style={headerIconButtonStyle}>
+            <EditIcon />
+          </button>
           <button className="ns-btn" type="button" title={watchPanelOpen ? "Hide SSE" : "Show SSE"} aria-label={watchPanelOpen ? "Hide SSE" : "Show SSE"} onClick={() => setWatchPanelOpen((v) => !v)} style={headerIconButtonStyle}>
             <StreamIcon />
           </button>
         </div>
       </div>
+
+      {watchPromptEditorOpen && (
+        <div
+          role="presentation"
+          onClick={() => setWatchPromptEditorOpen(false)}
+          style={{ position: "fixed", inset: 0, zIndex: 1300, background: "rgba(0,0,0,0.38)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label="Edit monitor prompt"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: "min(640px, calc(100vw - 32px))", background: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 6, boxShadow: "0 18px 50px rgba(0,0,0,0.3)", overflow: "hidden" }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>Monitor Prompt</div>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>Used when starting Northstar watch for this project.</div>
+              </div>
+              <button className="ns-btn" type="button" onClick={() => setWatchPromptEditorOpen(false)} style={{ ...headerIconButtonStyle, width: 28 }} aria-label="Close monitor prompt editor" title="Close">
+                ✕
+              </button>
+            </div>
+            <div style={{ padding: 12 }}>
+              <textarea
+                value={watchPromptDraft}
+                onChange={(e) => setWatchPromptDraft(e.target.value)}
+                spellCheck={false}
+                style={{ width: "100%", minHeight: 210, boxSizing: "border-box", resize: "vertical", border: "1px solid var(--border)", borderRadius: 5, padding: 10, background: "var(--bg-panel)", color: "var(--text)", fontFamily: "var(--font-mono)", fontSize: 12, lineHeight: 1.5, outline: "none" }}
+              />
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginTop: 10 }}>
+                <button className="ns-btn" type="button" onClick={resetWatchPrompt} style={btnLikeStyle}>
+                  Reset default
+                </button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button className="ns-btn" type="button" onClick={() => setWatchPromptEditorOpen(false)} style={btnLikeStyle}>
+                    Cancel
+                  </button>
+                  <button className="ns-btn" type="button" onClick={saveWatchPrompt} disabled={!watchPromptDraft.trim()} style={{ ...btnLikeStyle, background: "var(--accent)", borderColor: "var(--accent)", color: "white", opacity: watchPromptDraft.trim() ? 1 : 0.55 }}>
+                    Save
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
 
       {problemCount > 0 && (
         <div style={{ padding: "6px 14px", background: "#7c1d1d22", borderBottom: "1px solid #ef444433", fontSize: 12, color: "#ef4444", flexShrink: 0 }}>
@@ -567,4 +672,15 @@ const headerIconButtonStyle: React.CSSProperties = {
   alignItems: "center",
   justifyContent: "center",
   transition: "background 140ms ease, border-color 140ms ease, color 140ms ease",
+};
+
+const btnLikeStyle: React.CSSProperties = {
+  height: 28,
+  padding: "0 12px",
+  border: "1px solid var(--border)",
+  borderRadius: 5,
+  background: "var(--bg-panel)",
+  color: "var(--text)",
+  cursor: "pointer",
+  fontSize: 12,
 };

@@ -66,6 +66,10 @@ function stringField(value: unknown): string | null {
   return typeof value === "string" && value ? value : null;
 }
 
+function runStreamAdapter(run: Record<string, unknown>): string | null {
+  return stringField(run.stream_adapter) ?? stringField(objectField(run.capability_report)?.host);
+}
+
 function detailChildRuns(detail: NorthstarIssueDetail | null): Record<string, unknown>[] {
   const runtimeContext = objectField((detail?.snapshot as Record<string, unknown> | undefined)?.runtime_context_json);
   const childRuns = runtimeContext?.child_runs;
@@ -76,6 +80,22 @@ function detailChildRuns(detail: NorthstarIssueDetail | null): Record<string, un
     if (obj) runs.push(obj);
   }
   return runs;
+}
+
+function detailActiveStreamRun(detail: NorthstarIssueDetail | null): Record<string, unknown> | null {
+  const runtimeContext = objectField((detail?.snapshot as Record<string, unknown> | undefined)?.runtime_context_json);
+  const ownerLease = objectField(runtimeContext?.owner_lease);
+  const childRuns = detailChildRuns(detail);
+  if (childRuns.length === 0) return null;
+
+  const candidates = ownerLease
+    ? [
+        ...childRuns.filter((run) => stringField(run.lease_id) === stringField(ownerLease.lease_id)),
+        ...childRuns.filter((run) => stringField(run.role) === stringField(ownerLease.role)),
+      ]
+    : [...childRuns].reverse();
+
+  return candidates.find((run) => stringField(run.stream_session_id) && runStreamAdapter(run)) ?? null;
 }
 
 function buildSessionTargets(card: NorthstarBoardCard, detail: NorthstarIssueDetail | null): IssueSseTarget[] {
@@ -103,6 +123,19 @@ function buildSessionTargets(card: NorthstarBoardCard, detail: NorthstarIssueDet
     card.activeStreamChildRunId,
     card.latestRootSessionId,
   );
+
+  const activeDetailRun = detailActiveStreamRun(detail);
+  if (activeDetailRun) {
+    const streamAdapter = runStreamAdapter(activeDetailRun);
+    const adapter = sessionStreamAdapter(streamAdapter as NorthstarHostAdapter | null);
+    const streamSessionId = stringField(activeDetailRun.stream_session_id);
+    const streamRootSessionId = stringField(activeDetailRun.stream_root_session_id) ?? stringField(activeDetailRun.root_session_id) ?? streamSessionId;
+    const streamChildRunId = stringField(activeDetailRun.stream_child_run_id) ?? stringField(activeDetailRun.child_run_id);
+    const role = stringField(activeDetailRun.role);
+    const stage = childRunStage(streamChildRunId ?? role);
+    addSession(`live ${stage} · ${streamAdapter ?? "session"} · ${shortId(streamSessionId)}`, adapter, streamSessionId, streamChildRunId, streamRootSessionId);
+  }
+
   addSession(
     `${childRunStage(card.latestChildRunId)} · latest root · ${card.latestHostAdapter ?? "session"} · ${shortId(card.latestRootSessionId)}`,
     sessionStreamAdapter(card.latestHostAdapter),
@@ -126,7 +159,7 @@ function buildSessionTargets(card: NorthstarBoardCard, detail: NorthstarIssueDet
 
   const childRuns = detailChildRuns(detail);
   for (const run of childRuns) {
-    const streamAdapter = stringField(run.stream_adapter);
+    const streamAdapter = runStreamAdapter(run);
     const adapter = sessionStreamAdapter(streamAdapter as NorthstarHostAdapter | null);
     const streamSessionId = stringField(run.stream_session_id);
     const streamRootSessionId = stringField(run.stream_root_session_id) ?? streamSessionId;
