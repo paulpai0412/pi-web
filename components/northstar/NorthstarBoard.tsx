@@ -597,6 +597,12 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
     return () => clearInterval(timer);
   }, [autoRefreshEnabled, configPath, load]);
 
+  useEffect(() => {
+    if (!board || !selectedCard) return;
+    const latestCard = board.groups.flatMap((group) => group.cards).find((card) => card.issueId === selectedCard.issueId);
+    if (latestCard && latestCard !== selectedCard) setSelectedCard(latestCard);
+  }, [board, selectedCard]);
+
   const pendingCount = useMemo(() => (board ? countPending(board) : 0), [board]);
 
   const handleSelectCard = useCallback((card: NorthstarBoardCard) => {
@@ -853,6 +859,7 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
                       projectId={board.project.projectId}
                       configPath={configPath}
                       embedded
+                      autoRefreshEnabled={autoRefreshEnabled}
                     />
                   </div>
                 )}

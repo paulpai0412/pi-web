@@ -40,7 +40,10 @@ interface Props {
   configPath: string;
   onClose?: () => void;
   embedded?: boolean;
+  autoRefreshEnabled?: boolean;
 }
+
+const DETAIL_AUTO_REFRESH_MS = 60 * 1000;
 
 const drawerStyle: React.CSSProperties = {
   position: "fixed",
@@ -222,13 +225,32 @@ function historyStageLabel(event: NorthstarRunEvent): string {
   return event.eventType.replace(/_/g, " ");
 }
 
-export function IssueDrawer({ card, projectId, configPath, onClose, embedded = false }: Props) {
+export function IssueDrawer({ card, projectId, configPath, onClose, embedded = false, autoRefreshEnabled = false }: Props) {
   const [detail, setDetail] = useState<NorthstarIssueDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [snapshotOpen, setSnapshotOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(true);
   const [isRunningAction, setIsRunningAction] = useState(false);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
+
+  const loadDetail = useCallback(async (options?: { reset?: boolean }) => {
+    if (!card) return;
+    if (options?.reset) {
+      setDetail(null);
+      setDetailError(null);
+    }
+
+    const url = `/api/northstar/projects/${encodeURIComponent(projectId)}/issues/${encodeURIComponent(card.issueId)}?config=${encodeURIComponent(configPath)}`;
+    try {
+      const res = await fetch(url);
+      const body = (await res.json()) as { issue?: NorthstarIssueDetail; error?: string };
+      if (!res.ok || body.error) throw new Error(body.error ?? `HTTP ${res.status}`);
+      setDetail(body.issue ?? null);
+      setDetailError(null);
+    } catch (e: unknown) {
+      setDetailError(String(e));
+    }
+  }, [card, configPath, projectId]);
 
   useEffect(() => {
     if (!card) {
@@ -237,19 +259,15 @@ export function IssueDrawer({ card, projectId, configPath, onClose, embedded = f
       setActionStatus(null);
       return;
     }
-    setDetail(null);
-    setDetailError(null);
     setActionStatus(null);
+    void loadDetail({ reset: true });
+  }, [card, loadDetail]);
 
-    const url = `/api/northstar/projects/${encodeURIComponent(projectId)}/issues/${encodeURIComponent(card.issueId)}?config=${encodeURIComponent(configPath)}`;
-    fetch(url)
-      .then((r) => r.json())
-      .then((body: { issue?: NorthstarIssueDetail; error?: string }) => {
-        if (body.error) setDetailError(body.error);
-        else if (body.issue) setDetail(body.issue);
-      })
-      .catch((e: unknown) => setDetailError(String(e)));
-  }, [card, projectId, configPath]);
+  useEffect(() => {
+    if (!card || !autoRefreshEnabled) return;
+    const timer = window.setInterval(() => void loadDetail(), DETAIL_AUTO_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [autoRefreshEnabled, card, loadDetail]);
 
   const runAction = useCallback(
     (action: Action) => {
@@ -285,6 +303,7 @@ export function IssueDrawer({ card, projectId, configPath, onClose, embedded = f
           setActionStatus(data.code === 0 ? `${action.label} completed.` : `${action.label} failed (exit ${data.code ?? 1}).`);
           setIsRunningAction(false);
           es.close();
+          void loadDetail();
         } else if (data.type === "error") {
           setActionStatus(data.message ?? `${action.label} failed.`);
           setIsRunningAction(false);
@@ -298,7 +317,7 @@ export function IssueDrawer({ card, projectId, configPath, onClose, embedded = f
         es.close();
       };
     },
-    [card, configPath, isRunningAction, projectId]
+    [card, configPath, isRunningAction, loadDetail, projectId]
   );
 
   if (!card) return null;
