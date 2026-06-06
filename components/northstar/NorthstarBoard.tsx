@@ -873,19 +873,16 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
               <div style={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column" }}>
                 <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 12px", borderBottom: "1px solid var(--border)" }}>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>Northstar Watch</div>
-                    <div style={{ marginTop: 2, fontSize: 11, color: watchRunning ? "#16a34a" : shellRunning ? "#d97706" : "var(--text-dim)" }}>
-                      {watchRunning ? `watch pid ${watchPid ?? "?"}` : shellRunning ? "shell running" : shellCommandSaved ? "saved" : "idle"}
+                    <div style={{ fontSize: 11, color: watchRunning ? "#16a34a" : shellRunning ? "#d97706" : "var(--text-dim)" }}>
+                      {watchRunning ? `watch pid ${watchPid ?? "?"}` : shellRunning ? "shell running" : shellCommandSaved ? "command saved" : "idle"}
                       {watchStatus?.heartbeatAgeSeconds !== null && watchStatus?.heartbeatAgeSeconds !== undefined ? ` · heartbeat ${watchStatus.heartbeatAgeSeconds}s` : ""}
                       {shellExit ? ` · last exit ${shellExit.code ?? "null"}` : ""}
                     </div>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
                     <button className="ns-btn" type="button" onClick={() => void refreshWatchStatus()} style={btnLikeStyle}>Refresh</button>
                     {(shellRunning || watchRunning) && <button className="ns-btn" type="button" onClick={stopShellCommand} disabled={watchStopping} style={{ ...btnLikeStyle, opacity: watchStopping ? 0.55 : 1 }}>Stop</button>}
                     {watchRunning && <button className="ns-btn" type="button" onClick={() => void killWatchProcess(true)} disabled={watchStopping} style={{ ...btnLikeStyle, borderColor: "#ef4444", color: "#ef4444", opacity: watchStopping ? 0.55 : 1 }}>Force Kill</button>}
-                    <button className="ns-btn" type="button" onClick={saveShellCommand} disabled={shellRunning || !shellCommand.trim()} style={{ ...btnLikeStyle, opacity: shellRunning || !shellCommand.trim() ? 0.55 : 1 }}>Save</button>
-                    <button className="ns-btn" type="button" onClick={() => { if (configPath) { setShellCommand(defaultShellCommand(configPath)); setShellCommandSaved(false); } }} disabled={shellRunning} style={{ ...btnLikeStyle, opacity: shellRunning ? 0.55 : 1 }}>Default</button>
                     <button
                       className="ns-btn"
                       type="button"
@@ -922,27 +919,54 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
                   {runBlockedReason && <div style={{ marginTop: 5, color: "#d97706" }}>{runBlockedReason}. Stop or Force Kill before running again.</div>}
                   {watchStatusError && <div style={{ marginTop: 5, color: "#ef4444" }}>{watchStatusError}</div>}
                 </div>
-                <div style={{ flexShrink: 0, display: "flex", alignItems: "flex-start", gap: 8, padding: 10, borderBottom: "1px solid var(--border)", background: "var(--tool-bg)" }}>
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--accent)", lineHeight: "20px" }}>$</span>
-                  <textarea
-                    value={shellCommand}
-                    onChange={(e) => { setShellCommand(e.target.value); setShellCommandSaved(false); }}
-                    spellCheck={false}
-                    rows={4}
-                    aria-label="Shell command"
-                    style={{
-                      flex: 1,
-                      minWidth: 0,
-                      resize: "vertical",
-                      border: "none",
-                      outline: "none",
-                      background: "transparent",
-                      color: "var(--text)",
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 12,
-                      lineHeight: 1.45,
-                    }}
-                  />
+                <div style={{ flexShrink: 0, padding: 10, borderBottom: "1px solid var(--border)", background: "var(--tool-bg)" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Command</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                      <button
+                        className="ns-btn"
+                        type="button"
+                        onClick={() => { if (configPath) { setShellCommand(defaultShellCommand(configPath)); setShellCommandSaved(false); } }}
+                        disabled={shellRunning}
+                        title="Restore the default command text"
+                        style={{ ...btnLikeStyle, opacity: shellRunning ? 0.55 : 1, whiteSpace: "nowrap" }}
+                      >
+                        Restore default
+                      </button>
+                      <button
+                        className="ns-btn"
+                        type="button"
+                        onClick={saveShellCommand}
+                        disabled={shellRunning || !shellCommand.trim()}
+                        title="Save the command text"
+                        style={{ ...btnLikeStyle, opacity: shellRunning || !shellCommand.trim() ? 0.55 : 1, whiteSpace: "nowrap" }}
+                      >
+                        Save command
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--accent)", lineHeight: "20px" }}>$</span>
+                    <textarea
+                      value={shellCommand}
+                      onChange={(e) => { setShellCommand(e.target.value); setShellCommandSaved(false); }}
+                      spellCheck={false}
+                      rows={4}
+                      aria-label="Shell command"
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        resize: "vertical",
+                        border: "none",
+                        outline: "none",
+                        background: "transparent",
+                        color: "var(--text)",
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 12,
+                        lineHeight: 1.45,
+                      }}
+                    />
+                  </div>
                 </div>
                 {shellError && <div style={{ flexShrink: 0, padding: "6px 12px", borderBottom: "1px solid var(--border)", fontSize: 11, color: "#ef4444" }}>{shellError}</div>}
                 {shellExit && <div style={{ flexShrink: 0, padding: "6px 12px", borderBottom: "1px solid var(--border)", fontSize: 11, color: "var(--text-dim)" }}>Last exit: code={shellExit.code ?? "null"} signal={shellExit.signal ?? "null"}</div>}
