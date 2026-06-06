@@ -38,6 +38,31 @@ type ShellEvent =
   | { type: "exit"; code: number | null; signal: string | null }
   | { type: "error"; message: string };
 
+interface WatchProcessInfo {
+  pid: number;
+  ppid: number;
+  stat: string;
+  elapsed: string;
+  command: string;
+  lockOwner: boolean;
+}
+
+interface WatchStatus {
+  running: boolean;
+  lock: {
+    pid: number;
+    heartbeat_at: string;
+    project_root: string;
+    config_path: string;
+    host: string;
+    lease_id: string;
+  } | null;
+  lockPidAlive: boolean;
+  heartbeatAgeSeconds: number | null;
+  processes: WatchProcessInfo[];
+  lockPath: string;
+}
+
 function apiPath(path: string, configPath: string) {
   return `${path}?config=${encodeURIComponent(configPath)}`;
 }
@@ -98,6 +123,10 @@ function defaultShellCommand(configPath: string): string {
 
 function shellCommandStorageKey(configPath: string): string {
   return `northstar.shellCommand:${configPath}`;
+}
+
+function isWatchCommand(command: string): boolean {
+  return /(?:^|\s)watch(?:\s|$)/.test(command);
 }
 
 const centeredStyle: React.CSSProperties = {
@@ -343,6 +372,9 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
   const [shellRunning, setShellRunning] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
   const [shellExit, setShellExit] = useState<ShellExit | null>(null);
+  const [watchStatus, setWatchStatus] = useState<WatchStatus | null>(null);
+  const [watchStatusError, setWatchStatusError] = useState<string | null>(null);
+  const [watchStopping, setWatchStopping] = useState(false);
   const shellAbortRef = useRef<AbortController | null>(null);
   const shellOutputRef = useRef<HTMLPreElement | null>(null);
 
@@ -365,12 +397,57 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
     }
   }, []);
 
+  const refreshWatchStatus = useCallback(async () => {
+    if (!configPath) {
+      setWatchStatus(null);
+      setWatchStatusError(null);
+      return null;
+    }
+    try {
+      const status = await readJson<WatchStatus>(`/api/northstar/shell?config=${encodeURIComponent(configPath)}`);
+      setWatchStatus(status);
+      setWatchStatusError(null);
+      return status;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setWatchStatusError(message);
+      return null;
+    }
+  }, [configPath]);
+
+  const killWatchProcess = useCallback(async (force: boolean) => {
+    if (!configPath || watchStopping) return;
+    setWatchStopping(true);
+    setShellError(null);
+    try {
+      const res = await fetch("/api/northstar/shell", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config: configPath, force }),
+      });
+      const payload = (await res.json().catch(() => null)) as { error?: string; results?: Array<{ pid: number; signal: string; ok: boolean; error?: string }> } | null;
+      if (!res.ok) throw new Error(payload?.error ?? `Stop failed with ${res.status}`);
+      const lines = payload?.results?.map((result) => (
+        `[watch ${force ? "kill" : "stop"}] pid=${result.pid} signal=${result.signal} ${result.ok ? "ok" : `failed ${result.error ?? ""}`}`
+      )) ?? [`[watch ${force ? "kill" : "stop"}] no matching process`];
+      setShellOutput((prev) => `${prev}${prev.endsWith("\n") || !prev ? "" : "\n"}${lines.join("\n")}\n`);
+      await refreshWatchStatus();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setShellError(message);
+      setShellOutput((prev) => `${prev}${prev.endsWith("\n") || !prev ? "" : "\n"}[error] ${message}\n`);
+    } finally {
+      setWatchStopping(false);
+    }
+  }, [configPath, refreshWatchStatus, watchStopping]);
+
   const stopShellCommand = useCallback(() => {
     shellAbortRef.current?.abort();
     shellAbortRef.current = null;
     setShellRunning(false);
     setShellOutput((prev) => `${prev}${prev.endsWith("\n") || !prev ? "" : "\n"}[terminated]\n`);
-  }, []);
+    void killWatchProcess(false);
+  }, [killWatchProcess]);
 
   const appendShellEvent = useCallback((event: ShellEvent) => {
     if (event.type === "start") {
@@ -394,6 +471,15 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
     if (!configPath) return;
     const command = shellCommand.trim();
     if (!command || shellRunning) return;
+    if (isWatchCommand(command)) {
+      const status = await refreshWatchStatus();
+      if (status?.running) {
+        const pid = status.lock?.pid ?? status.processes[0]?.pid;
+        setShellError(`Northstar watch is already running${pid ? ` (pid ${pid})` : ""}. Stop or Force Kill it before running again.`);
+        setShellOutput((prev) => `${prev}${prev.endsWith("\n") || !prev ? "" : "\n"}[blocked] Northstar watch is already running${pid ? ` pid=${pid}` : ""}\n`);
+        return;
+      }
+    }
 
     const controller = new AbortController();
     shellAbortRef.current = controller;
@@ -444,8 +530,9 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
     } finally {
       if (shellAbortRef.current === controller) shellAbortRef.current = null;
       setShellRunning(false);
+      void refreshWatchStatus();
     }
-  }, [appendShellEvent, configPath, shellCommand, shellRunning]);
+  }, [appendShellEvent, configPath, refreshWatchStatus, shellCommand, shellRunning]);
 
   const saveShellCommand = useCallback(() => {
     if (!configPath) return;
@@ -471,6 +558,8 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
       setShellOutput("");
       setShellError(null);
       setShellExit(null);
+      setWatchStatus(null);
+      setWatchStatusError(null);
       return;
     }
     const fallback = defaultShellCommand(configPath);
@@ -490,7 +579,15 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
     setShellOutput("");
     setShellError(null);
     setShellExit(null);
-  }, [configPath]);
+    void refreshWatchStatus();
+  }, [configPath, refreshWatchStatus]);
+
+  useEffect(() => {
+    if (!configPath || contextTab !== "watch" || !contextPanelOpen) return;
+    void refreshWatchStatus();
+    const timer = setInterval(() => void refreshWatchStatus(), 3000);
+    return () => clearInterval(timer);
+  }, [configPath, contextPanelOpen, contextTab, refreshWatchStatus]);
 
   useEffect(() => {
     if (!autoRefreshEnabled || !configPath) return;
@@ -545,6 +642,13 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
   const problemCount = redCount + orangeCount;
 
   const cardsByLifecycle = new Map(board.groups.map((g) => [g.lifecycle, g.cards]));
+  const watchRunning = watchStatus?.running ?? false;
+  const watchPid = watchStatus?.lock?.pid ?? watchStatus?.processes[0]?.pid ?? null;
+  const commandIsWatch = isWatchCommand(shellCommand.trim());
+  const runDisabled = shellRunning || !shellCommand.trim() || (commandIsWatch && watchRunning);
+  const runBlockedReason = commandIsWatch && watchRunning
+    ? `watch already running${watchPid ? ` pid=${watchPid}` : ""}`
+    : "";
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", minWidth: 0, position: "relative" }}>
@@ -556,6 +660,9 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
             <span style={{ flexShrink: 0 }}>host: {board.project.hostAdapter}</span>
             <span style={{ fontSize: 11, color: shellRunning ? "#16a34a" : "var(--text-dim)" }}>
               terminal: {shellRunning ? "running" : "idle"}
+            </span>
+            <span style={{ fontSize: 11, color: watchRunning ? "#16a34a" : "var(--text-dim)" }}>
+              watch: {watchRunning ? `pid ${watchPid ?? "?"}` : "stopped"}
             </span>
             <span style={{ fontSize: 11, color: "var(--text-dim)" }}>pending: {pendingCount}</span>
           </div>
@@ -766,17 +873,54 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
               <div style={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column" }}>
                 <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 12px", borderBottom: "1px solid var(--border)" }}>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>Shell Terminal</div>
-                    <div style={{ marginTop: 2, fontSize: 11, color: shellRunning ? "#16a34a" : "var(--text-dim)" }}>
-                      {shellRunning ? "running" : shellCommandSaved ? "saved" : "idle"}{shellExit ? ` · last exit ${shellExit.code ?? "null"}` : ""}
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>Northstar Watch</div>
+                    <div style={{ marginTop: 2, fontSize: 11, color: watchRunning ? "#16a34a" : shellRunning ? "#d97706" : "var(--text-dim)" }}>
+                      {watchRunning ? `watch pid ${watchPid ?? "?"}` : shellRunning ? "shell running" : shellCommandSaved ? "saved" : "idle"}
+                      {watchStatus?.heartbeatAgeSeconds !== null && watchStatus?.heartbeatAgeSeconds !== undefined ? ` · heartbeat ${watchStatus.heartbeatAgeSeconds}s` : ""}
+                      {shellExit ? ` · last exit ${shellExit.code ?? "null"}` : ""}
                     </div>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                    {shellRunning && <button className="ns-btn" type="button" onClick={stopShellCommand} style={btnLikeStyle}>Stop</button>}
+                    <button className="ns-btn" type="button" onClick={() => void refreshWatchStatus()} style={btnLikeStyle}>Refresh</button>
+                    {(shellRunning || watchRunning) && <button className="ns-btn" type="button" onClick={stopShellCommand} disabled={watchStopping} style={{ ...btnLikeStyle, opacity: watchStopping ? 0.55 : 1 }}>Stop</button>}
+                    {watchRunning && <button className="ns-btn" type="button" onClick={() => void killWatchProcess(true)} disabled={watchStopping} style={{ ...btnLikeStyle, borderColor: "#ef4444", color: "#ef4444", opacity: watchStopping ? 0.55 : 1 }}>Force Kill</button>}
                     <button className="ns-btn" type="button" onClick={saveShellCommand} disabled={shellRunning || !shellCommand.trim()} style={{ ...btnLikeStyle, opacity: shellRunning || !shellCommand.trim() ? 0.55 : 1 }}>Save</button>
                     <button className="ns-btn" type="button" onClick={() => { if (configPath) { setShellCommand(defaultShellCommand(configPath)); setShellCommandSaved(false); } }} disabled={shellRunning} style={{ ...btnLikeStyle, opacity: shellRunning ? 0.55 : 1 }}>Default</button>
-                    <button className="ns-btn" type="button" onClick={() => void runShellCommand()} disabled={shellRunning || !shellCommand.trim()} style={{ ...btnLikeStyle, background: "var(--accent)", borderColor: "var(--accent)", color: "white", opacity: shellRunning || !shellCommand.trim() ? 0.55 : 1 }}>Run</button>
+                    <button
+                      className="ns-btn"
+                      type="button"
+                      onClick={() => void runShellCommand()}
+                      disabled={runDisabled}
+                      title={runBlockedReason}
+                      style={{ ...btnLikeStyle, background: "var(--accent)", borderColor: "var(--accent)", color: "white", opacity: runDisabled ? 0.55 : 1 }}
+                    >
+                      Run
+                    </button>
                   </div>
+                </div>
+                <div style={{ flexShrink: 0, padding: "7px 12px", borderBottom: "1px solid var(--border)", background: "var(--bg-panel)", fontSize: 11, color: "var(--text-muted)" }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 10px" }}>
+                    <span>lock: {watchStatus?.lock ? "present" : "none"}</span>
+                    <span>owner: {watchStatus?.lockPidAlive ? "alive" : watchStatus?.lock ? "not visible" : "none"}</span>
+                    <span>pid: {watchPid ?? "none"}</span>
+                    <span>processes: {watchStatus?.processes.length ?? 0}</span>
+                  </div>
+                  {watchStatus?.lockPath && (
+                    <div style={{ marginTop: 4, fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {watchStatus.lockPath}
+                    </div>
+                  )}
+                  {watchStatus?.processes.length ? (
+                    <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 3 }}>
+                      {watchStatus.processes.map((proc) => (
+                        <div key={proc.pid} style={{ fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {proc.lockOwner ? "* " : ""}pid={proc.pid} ppid={proc.ppid} {proc.elapsed} {proc.command}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  {runBlockedReason && <div style={{ marginTop: 5, color: "#d97706" }}>{runBlockedReason}. Stop or Force Kill before running again.</div>}
+                  {watchStatusError && <div style={{ marginTop: 5, color: "#ef4444" }}>{watchStatusError}</div>}
                 </div>
                 <div style={{ flexShrink: 0, display: "flex", alignItems: "flex-start", gap: 8, padding: 10, borderBottom: "1px solid var(--border)", background: "var(--tool-bg)" }}>
                   <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--accent)", lineHeight: "20px" }}>$</span>
