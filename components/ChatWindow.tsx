@@ -5,6 +5,7 @@ import type { AgentMessage, SessionInfo, SessionTreeNode } from "@/lib/types";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
+import { BranchNavigator } from "./BranchNavigator";
 import { useAgentSession, type AgentPhase } from "@/hooks/useAgentSession";
 import { useAudio } from "@/hooks/useAudio";
 import { useDragDrop } from "@/hooks/useDragDrop";
@@ -18,6 +19,9 @@ interface Props {
   modelsRefreshKey?: number;
   chatInputRef?: React.RefObject<ChatInputHandle | null>;
   onBranchDataChange?: (tree: SessionTreeNode[], activeLeafId: string | null, onLeafChange: (leafId: string | null) => void) => void;
+  branchTree?: SessionTreeNode[];
+  branchActiveLeafId?: string | null;
+  onBranchLeafChange?: (leafId: string | null) => void;
   onSystemPromptChange?: (prompt: string | null) => void;
   onSessionStatsChange?: (stats: { tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }; cost?: number } | null) => void;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
@@ -36,7 +40,7 @@ function phaseLabel(phase: AgentPhase): string {
   return "Thinking...";
 }
 
-export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onContextUsageChange, compactLayout = false }: Props) {
+export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, branchTree, branchActiveLeafId, onBranchLeafChange, onSystemPromptChange, onSessionStatsChange, onContextUsageChange, compactLayout = false }: Props) {
   const {
     loading, error, messages, entryIds, streamState,
     agentRunning, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
@@ -59,6 +63,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   playDoneSoundRef.current = playDoneSound;
   const soundEnabledRef = useRef(soundEnabled);
   soundEnabledRef.current = soundEnabled;
+  const branchHeaderRef = useRef<HTMLDivElement | null>(null);
 
   // Wrap agent event handler to play sound on agent_end
   const origHandler = handleAgentEventRef.current;
@@ -206,6 +211,29 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         </div>
       ) : (
       <>
+      {branchTree && onBranchLeafChange && (
+        <div
+          ref={branchHeaderRef}
+          style={{
+            height: 32,
+            flexShrink: 0,
+            display: "flex",
+            alignItems: "stretch",
+            justifyContent: "flex-end",
+            borderBottom: "1px solid var(--border)",
+            background: "var(--bg)",
+          }}
+        >
+          <BranchNavigator
+            tree={branchTree}
+            activeLeafId={branchActiveLeafId ?? null}
+            onLeafChange={onBranchLeafChange}
+            inline
+            containerRef={branchHeaderRef}
+            hasSession={Boolean(session)}
+          />
+        </div>
+      )}
       <div className="relative flex flex-1 overflow-hidden">
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pt-4 [scrollbar-width:none]">
           <div className={compactLayout ? "px-3" : "mx-auto max-w-[820px] px-4"}>
