@@ -2,8 +2,14 @@
 
 import { WORKSPACE_VIEWS } from "./workspace-views";
 
-// Top-bar workspace tab row. Chat is embedded inside the Northstar workbench
-// context panel, so only registry-owned workspace views are rendered here.
+const chatIcon = (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
+  </svg>
+);
+
+// Top-bar workspace tab row. Chat has a dedicated full-size workspace, while
+// registry-owned views such as Northstar can also embed compact chat panels.
 
 export function WorkspaceTabs({
   active,
@@ -12,7 +18,10 @@ export function WorkspaceTabs({
   active: string;
   onSelect: (id: string) => void;
 }) {
-  const tabs = WORKSPACE_VIEWS.map((view) => ({ id: view.id, label: view.label, icon: view.icon }));
+  const tabs = [
+    { id: "chat", label: "Chat", icon: chatIcon },
+    ...WORKSPACE_VIEWS.map((view) => ({ id: view.id, label: view.label, icon: view.icon })),
+  ];
 
   return (
     <div style={{ display: "flex", alignItems: "stretch", height: "100%" }}>

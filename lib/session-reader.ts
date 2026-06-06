@@ -9,16 +9,43 @@ export function getSessionsDir(): string {
   return `${getAgentDir()}/sessions`;
 }
 
-export async function listAllSessions(): Promise<SessionInfo[]> {
+type ListSessionsOptions = {
+  includeNorthstarRuntime?: boolean;
+  firstMessageMaxLength?: number;
+};
+
+function isNorthstarRuntimeSession(s: PiSessionInfo): boolean {
+  const cwd = s.cwd ?? "";
+  const firstMessage = (s.firstMessage ?? "").trim();
+  return (
+    cwd.includes("/.northstar/runtime/") ||
+    cwd.startsWith("/tmp/northstar-") ||
+    firstMessage.startsWith("You are executing a Northstar software-development") ||
+    firstMessage.startsWith("Implement northstar-production") ||
+    firstMessage.startsWith("請啟動 northstar skill watch")
+  );
+}
+
+function previewFirstMessage(value: string | undefined, maxLength: number): string {
+  const text = value || "(no messages)";
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength).trimEnd()}…`;
+}
+
+export async function listAllSessions(options: ListSessionsOptions = {}): Promise<SessionInfo[]> {
+  const includeNorthstarRuntime = options.includeNorthstarRuntime ?? false;
+  const firstMessageMaxLength = options.firstMessageMaxLength ?? 280;
   const piSessions: PiSessionInfo[] = await SessionManager.listAll();
   const pathToId = new Map<string, string>();
   for (const s of piSessions) pathToId.set(s.path, s.id);
 
   const cache = getPathCache();
-  return piSessions.map((s) => {
+  const sessions: SessionInfo[] = [];
+  for (const s of piSessions) {
     // Populate path cache so resolveSessionPath works without a full scan
     cache.set(s.id, s.path);
-    return {
+    if (!includeNorthstarRuntime && isNorthstarRuntimeSession(s)) continue;
+    sessions.push({
       path: s.path,
       id: s.id,
       cwd: s.cwd,
@@ -26,10 +53,11 @@ export async function listAllSessions(): Promise<SessionInfo[]> {
       created: s.created instanceof Date ? s.created.toISOString() : String(s.created),
       modified: s.modified instanceof Date ? s.modified.toISOString() : String(s.modified),
       messageCount: s.messageCount,
-      firstMessage: s.firstMessage || "(no messages)",
+      firstMessage: previewFirstMessage(s.firstMessage, firstMessageMaxLength),
       parentSessionId: s.parentSessionPath ? pathToId.get(s.parentSessionPath) : undefined,
-    };
-  });
+    });
+  }
+  return sessions;
 }
 
 // ============================================================================
@@ -50,7 +78,7 @@ export async function resolveSessionPath(sessionId: string): Promise<string | nu
   if (cached) return cached;
 
   // Cache miss: scan all sessions to populate cache, then retry
-  await listAllSessions();
+  await listAllSessions({ includeNorthstarRuntime: true });
   return getPathCache().get(sessionId) ?? null;
 }
 
@@ -187,6 +215,4 @@ export function getLeafId(entries: SessionEntry[]): string | null {
   if (entries.length === 0) return null;
   return entries[entries.length - 1].id;
 }
-
-
 

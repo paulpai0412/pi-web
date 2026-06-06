@@ -38,7 +38,8 @@ interface Props {
   card: NorthstarBoardCard | null;
   projectId: string;
   configPath: string;
-  onClose: () => void;
+  onClose?: () => void;
+  embedded?: boolean;
 }
 
 const drawerStyle: React.CSSProperties = {
@@ -53,6 +54,15 @@ const drawerStyle: React.CSSProperties = {
   flexDirection: "column",
   zIndex: 1200,
   boxShadow: "-4px 0 16px rgba(0,0,0,0.15)",
+  overflow: "hidden",
+};
+
+const embeddedStyle: React.CSSProperties = {
+  height: "100%",
+  minHeight: 0,
+  background: "var(--bg)",
+  display: "flex",
+  flexDirection: "column",
   overflow: "hidden",
 };
 
@@ -212,7 +222,7 @@ function historyStageLabel(event: NorthstarRunEvent): string {
   return event.eventType.replace(/_/g, " ");
 }
 
-export function IssueDrawer({ card, projectId, configPath, onClose }: Props) {
+export function IssueDrawer({ card, projectId, configPath, onClose, embedded = false }: Props) {
   const [detail, setDetail] = useState<NorthstarIssueDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [snapshotOpen, setSnapshotOpen] = useState(false);
@@ -299,7 +309,7 @@ export function IssueDrawer({ card, projectId, configPath, onClose }: Props) {
   const exceptionInfo = showException ? buildExceptionInfo(card, detail) : null;
 
   return (
-    <div style={drawerStyle}>
+    <div style={embedded ? embeddedStyle : drawerStyle}>
       <div style={{ ...sectionStyle, display: "flex", alignItems: "flex-start", gap: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>
@@ -326,9 +336,11 @@ export function IssueDrawer({ card, projectId, configPath, onClose }: Props) {
             )}
           </div>
         </div>
-        <button className="ns-btn" type="button" onClick={onClose} style={{ ...btnStyle, width: 28, padding: 0, flexShrink: 0, marginRight: 0 }} aria-label="Close issue drawer" title="Close">
-          ✕
-        </button>
+        {!embedded && (
+          <button className="ns-btn" type="button" onClick={onClose} style={{ ...btnStyle, width: 28, padding: 0, flexShrink: 0, marginRight: 0 }} aria-label="Close issue drawer" title="Close">
+            ✕
+          </button>
+        )}
       </div>
 
       {showException && (
@@ -383,7 +395,7 @@ export function IssueDrawer({ card, projectId, configPath, onClose }: Props) {
         </div>
       )}
 
-      <div style={{ flex: 1, overflow: "auto" }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", scrollbarGutter: "stable" }}>
         <div style={sectionStyle}>
           <button
             className="ns-btn"

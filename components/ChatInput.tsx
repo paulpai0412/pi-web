@@ -37,6 +37,7 @@ interface Props {
   retryInfo?: { attempt: number; maxAttempts: number; errorMessage?: string } | null;
   soundEnabled?: boolean;
   onSoundToggle?: () => void;
+  compactLayout?: boolean;
 }
 
 export interface ChatInputHandle {
@@ -65,6 +66,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo,
   soundEnabled, onSoundToggle,
+  compactLayout = false,
 }: Props, ref) {
   const [value, setValue] = useState("");
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
@@ -267,8 +269,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       style={{
         flexShrink: 0,
         background: "transparent",
-        padding: "0 16px 8px",
-        paddingRight: 52, // 16px base + 36px for ChatMinimap alignment
+        padding: compactLayout ? "0 12px 10px" : "0 16px 8px",
+        paddingRight: compactLayout ? 12 : 52, // 16px base + 36px for ChatMinimap alignment
       }}
     >
       {/* Hidden file input */}
@@ -284,7 +286,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           e.target.value = "";
         }}
       />
-      <div style={{ maxWidth: 820, margin: "0 auto" }}>
+      <div style={{ maxWidth: compactLayout ? "none" : 820, margin: compactLayout ? 0 : "0 auto" }}>
         {/* Retry banner */}
         {retryInfo && (
           <div style={{

@@ -24,14 +24,18 @@ export function AppShell() {
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
   // When user clicks +, we only store the cwd — no fake session id
   const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null);
+  const [northstarChatSession, setNorthstarChatSession] = useState<SessionInfo | null>(null);
+  const [northstarNewSessionCwd, setNorthstarNewSessionCwd] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [sessionKey, setSessionKey] = useState(0);
+  const [northstarSessionKey, setNorthstarSessionKey] = useState(0);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [modelsConfigOpen, setModelsConfigOpen] = useState(false);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
+  const northstarChatInputRef = useRef<ChatInputHandle | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
 
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
@@ -121,7 +125,16 @@ export function AppShell() {
       if (prev && prev !== cwd) return null;
       return prev;
     });
+    setNorthstarChatSession((prev) => {
+      if (prev && prev.cwd !== cwd) return null;
+      return prev;
+    });
+    setNorthstarNewSessionCwd((prev) => {
+      if (prev && prev !== cwd) return null;
+      return prev;
+    });
     setSessionKey((k) => k + 1);
+    setNorthstarSessionKey((k) => k + 1);
     setBranchTree([]);
     setBranchActiveLeafId(null);
     setSystemPrompt(null);
@@ -130,7 +143,6 @@ export function AppShell() {
   }, [router]);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
-    setWorkspaceView("northstar");
     setNewSessionCwd(null);
     setSelectedSession(session);
     setSessionKey((k) => k + 1);
@@ -150,7 +162,6 @@ export function AppShell() {
   }, [router]);
 
   const handleNewSession = useCallback((_sessionId: string, cwd: string) => {
-    setWorkspaceView("northstar");
     setSelectedSession(null);
     setNewSessionCwd(cwd);
     setSessionKey((k) => k + 1);
@@ -163,12 +174,17 @@ export function AppShell() {
 
   // Called by ChatWindow when a new session gets its real id from pi
   const handleSessionCreated = useCallback((session: SessionInfo) => {
-    setWorkspaceView("northstar");
     setNewSessionCwd(null);
     setSelectedSession(session);
     setRefreshKey((k) => k + 1);
     router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
   }, [router]);
+
+  const handleNorthstarSessionCreated = useCallback((session: SessionInfo) => {
+    setNorthstarNewSessionCwd(null);
+    setNorthstarChatSession(session);
+    setRefreshKey((k) => k + 1);
+  }, []);
 
   const handleAgentEnd = useCallback(() => {
     setRefreshKey((k) => k + 1);
@@ -176,7 +192,6 @@ export function AppShell() {
   }, []);
 
   const handleSessionForked = useCallback((newSessionId: string) => {
-    setWorkspaceView("northstar");
     setRefreshKey((k) => k + 1);
     setSessionKey((k) => k + 1);
     setNewSessionCwd(null);
@@ -186,6 +201,16 @@ export function AppShell() {
     }));
     router.replace(`?session=${encodeURIComponent(newSessionId)}`, { scroll: false });
   }, [router]);
+
+  const handleNorthstarSessionForked = useCallback((newSessionId: string) => {
+    setRefreshKey((k) => k + 1);
+    setNorthstarSessionKey((k) => k + 1);
+    setNorthstarNewSessionCwd(null);
+    setNorthstarChatSession((prev) => ({
+      ...(prev ?? { path: "", cwd: activeCwd ?? "", created: "", modified: "", messageCount: 0, firstMessage: "" }),
+      id: newSessionId,
+    }));
+  }, [activeCwd]);
 
   const handleInitialRestoreDone = useCallback(() => {
     setInitialSessionRestored(true);
@@ -204,7 +229,13 @@ export function AppShell() {
       setActiveTopPanel(null);
       router.replace("/", { scroll: false });
     }
-  }, [selectedSession, router]);
+    if (northstarChatSession?.id === sessionId) {
+      const cwd = northstarChatSession.cwd;
+      setNorthstarChatSession(null);
+      setNorthstarNewSessionCwd(cwd ?? null);
+      setNorthstarSessionKey((k) => k + 1);
+    }
+  }, [selectedSession, northstarChatSession, router]);
 
   const handleOpenFile = useCallback((filePath: string, fileName: string) => {
     const tabId = `file:${filePath}`;
@@ -232,6 +263,8 @@ export function AppShell() {
   // Show chat area if a session is selected, or if we have a cwd to start a new session in
   const effectiveNewSessionCwd = newSessionCwd ?? (selectedSession === null && activeCwd ? activeCwd : null);
   const showChat = selectedSession !== null || effectiveNewSessionCwd !== null;
+  const effectiveNorthstarNewSessionCwd = northstarNewSessionCwd ?? (northstarChatSession === null && activeCwd ? activeCwd : null);
+  const showNorthstarChat = northstarChatSession !== null || effectiveNorthstarNewSessionCwd !== null;
   // While restoring initial session from URL, don't show the placeholder
   const showPlaceholder = initialSessionRestored && !showChat;
 
@@ -251,6 +284,24 @@ export function AppShell() {
       onSystemPromptChange={handleSystemPromptChange}
       onSessionStatsChange={handleSessionStatsChange}
       onContextUsageChange={handleContextUsageChange}
+    />
+  ) : (
+    <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12, padding: 16, textAlign: "center" }}>
+      Select a project directory to start chatting.
+    </div>
+  );
+
+  const northstarChatPanel = showNorthstarChat ? (
+    <ChatWindow
+      key={`${northstarSessionKey}:northstar`}
+      session={northstarChatSession}
+      newSessionCwd={effectiveNorthstarNewSessionCwd}
+      onAgentEnd={handleAgentEnd}
+      onSessionCreated={handleNorthstarSessionCreated}
+      onSessionForked={handleNorthstarSessionForked}
+      modelsRefreshKey={modelsRefreshKey}
+      chatInputRef={northstarChatInputRef}
+      compactLayout
     />
   ) : (
     <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12, padding: 16, textAlign: "center" }}>
@@ -592,7 +643,7 @@ export function AppShell() {
         <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
           {/* >>> northstar: non-chat views render from the registry */}
           {workspaceView !== "chat" ? (
-            renderWorkspaceView(workspaceView, { activeCwd, chatPanel })
+            renderWorkspaceView(workspaceView, { activeCwd, chatPanel: northstarChatPanel })
           ) : /* <<< northstar */ showChat ? (
             chatPanel
           ) : showPlaceholder ? (

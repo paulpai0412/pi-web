@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { AgentMessage, SessionInfo, SessionTreeNode } from "@/lib/types";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
@@ -21,6 +21,7 @@ interface Props {
   onSystemPromptChange?: (prompt: string | null) => void;
   onSessionStatsChange?: (stats: { tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }; cost?: number } | null) => void;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
+  compactLayout?: boolean;
 }
 
 function phaseLabel(phase: AgentPhase): string {
@@ -35,62 +36,7 @@ function phaseLabel(phase: AgentPhase): string {
   return "Thinking...";
 }
 
-const TYPEWRITER_PHRASES = [
-  "ready when you are.",
-  "ask me anything.",
-  "let's build something cool.",
-  "explore your codebase.",
-  "draft an email.",
-  "summarize that paper.",
-  "plan your weekend.",
-  "explain it like I'm five.",
-  "pair-program with me.",
-  "fix that pesky bug.",
-  "translate to 中文.",
-  "write a haiku.",
-  "brainstorm ideas.",
-  "review my pull request.",
-  "what should we cook tonight?",
-  "ship it.",
-  "make it pretty.",
-  "rubber-duck with me.",
-];
-
-function Typewriter({ phrases }: { phrases: string[] }) {
-  const [phraseIdx, setPhraseIdx] = useState(() => Math.floor(Math.random() * phrases.length));
-  const [text, setText] = useState("");
-  const [deleting, setDeleting] = useState(false);
-  const [caretOn, setCaretOn] = useState(true);
-
-  useEffect(() => {
-    const blink = setInterval(() => setCaretOn((v) => !v), 530);
-    return () => clearInterval(blink);
-  }, []);
-
-  useEffect(() => {
-    const current = phrases[phraseIdx];
-    let timeout: ReturnType<typeof setTimeout>;
-    if (!deleting && text === current) {
-      timeout = setTimeout(() => setDeleting(true), 1800);
-    } else if (deleting && text === "") {
-      setDeleting(false);
-      setPhraseIdx((i) => (i + 1) % phrases.length);
-    } else {
-      const next = deleting ? current.slice(0, text.length - 1) : current.slice(0, text.length + 1);
-      timeout = setTimeout(() => setText(next), deleting ? 28 : 55);
-    }
-    return () => clearTimeout(timeout);
-  }, [text, deleting, phraseIdx, phrases]);
-
-  return (
-    <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>
-      {text}
-      <span style={{ opacity: caretOn ? 1 : 0, color: "var(--accent)", marginLeft: 1 }}>▍</span>
-    </span>
-  );
-}
-
-export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onContextUsageChange }: Props) {
+export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onContextUsageChange, compactLayout = false }: Props) {
   const {
     loading, error, messages, entryIds, streamState,
     agentRunning, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
@@ -192,6 +138,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       retryInfo={retryInfo}
       soundEnabled={soundEnabled}
       onSoundToggle={onSoundToggle}
+      compactLayout={compactLayout}
     />
   );
 
@@ -252,38 +199,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       )}
 
       {isEmptyNew ? (
-        <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8">
-          <div className="w-full max-w-[820px]">
-            <div
-              className="mb-3"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 12,
-                marginLeft: 16,
-                marginRight: 52,
-                fontFamily: "var(--font-mono)",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0, flex: 1, lineHeight: 1.4 }}>
-                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-                  <polygon points="14,2 17,11 26,11 19,17 22,26 14,20 6,26 9,17 2,11 11,11" fill="var(--text)" opacity="0.9" />
-                </svg>
-                <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, letterSpacing: "-0.01em" }}>Northstar guides you.</span>
-                <span style={{ fontSize: 14, minWidth: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
-                  <Typewriter phrases={TYPEWRITER_PHRASES} />
-                </span>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                  web <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span>
-                </span>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                  pi <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span>
-                </span>
-              </div>
-            </div>
+        <div className="flex flex-1 flex-col justify-end overflow-y-auto px-3 py-3">
+          <div className="w-full">
             {chatInputElement}
           </div>
         </div>
@@ -291,7 +208,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       <>
       <div className="relative flex flex-1 overflow-hidden">
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pt-4 [scrollbar-width:none]">
-          <div className="mx-auto max-w-[820px] px-4">
+          <div className={compactLayout ? "px-3" : "mx-auto max-w-[820px] px-4"}>
 
             {(() => {
               const toolResultsMap = new Map<string, import("@/lib/types").ToolResultMessage>();
@@ -363,19 +280,21 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               </div>
             )}
 
-            {agentRunning && (
+            {agentRunning && !compactLayout && (
               <div style={{ height: scrollContainerRef.current ? scrollContainerRef.current.clientHeight : "80vh" }} />
             )}
 
             <div ref={messagesEndRef} />
           </div>
         </div>
-        <ChatMinimap
-          messages={messages}
-          streamingMessage={streamState.streamingMessage}
-          scrollContainer={scrollContainerRef}
-          messageRefs={messageRefs}
-        />
+        {!compactLayout && (
+          <ChatMinimap
+            messages={messages}
+            streamingMessage={streamState.streamingMessage}
+            scrollContainer={scrollContainerRef}
+            messageRefs={messageRefs}
+          />
+        )}
       </div>
 
       <div className="relative">

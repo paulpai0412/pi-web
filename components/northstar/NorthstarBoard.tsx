@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import type {
   NorthstarBoard as NorthstarBoardModel,
@@ -10,8 +10,7 @@ import type {
 } from "@/lib/northstar/types";
 
 import { IssueDrawer } from "./IssueDrawer";
-import { IssueSseModal, IssueSsePanel } from "./IssueSseModal";
-import { WatchSsePanel } from "./WatchSsePanel";
+import { IssueSsePanel } from "./IssueSseModal";
 
 const LIFECYCLE_ORDER: NorthstarLifecycleState[] = [
   "ready", "claimed", "running", "verifying", "verified",
@@ -29,39 +28,24 @@ const PENDING_STATES: NorthstarLifecycleState[] = [
   "exception",
 ];
 
-const CONFIG_SUFFIX = "/.northstar.yaml";
+const NORTHSTAR_ROOT = "/home/timmypai/apps/northstar";
 
-const DEFAULT_WATCH_PROMPT = [
-  "請啟動 northstar skill watch，持續推進目前專案待處理 issue。",
-  "規則：持續循環執行直到我明確要求停止，或已無待處理 issue（ready/claimed/running/verifying/verified/release_pending/releasing/exception 皆為 0）。",
-  "每輪請簡短回報目前進度、卡住原因與下一步。",
-].join("\n");
-
-const STOP_WATCH_PROMPT = "請停止 northstar watch，結束本輪執行並回報停止結果。";
+type ShellExit = { code: number | null; signal: string | null };
+type ShellEvent =
+  | { type: "start"; cwd: string; shell: string; command: string }
+  | { type: "stdout"; text: string }
+  | { type: "stderr"; text: string }
+  | { type: "exit"; code: number | null; signal: string | null }
+  | { type: "error"; message: string };
 
 function apiPath(path: string, configPath: string) {
   return `${path}?config=${encodeURIComponent(configPath)}`;
-}
-
-function watchPromptStorageKey(configPath: string) {
-  return `northstar.watchPrompt:${configPath}`;
 }
 
 async function readJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
   const payload = (await res.json()) as T & { error?: string };
   if (!res.ok) throw new Error(payload.error ?? `Northstar request failed with ${res.status}`);
-  return payload;
-}
-
-async function postJson<T>(url: string, body: unknown): Promise<T> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const payload = (await res.json()) as T & { error?: string };
-  if (!res.ok) throw new Error(payload.error ?? `Request failed with ${res.status}`);
   return payload;
 }
 
@@ -93,16 +77,38 @@ function countPending(board: NorthstarBoardModel): number {
   return PENDING_STATES.reduce((sum, state) => sum + (map.get(state) ?? 0), 0);
 }
 
-function configToCwd(configPath: string): string {
-  return configPath.endsWith(CONFIG_SUFFIX)
-    ? configPath.slice(0, -CONFIG_SUFFIX.length)
-    : configPath;
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function defaultShellCommand(configPath: string): string {
+  return [
+    "node",
+    shellQuote(`${NORTHSTAR_ROOT}/src/cli/entrypoint.ts`),
+    "watch",
+    "--config",
+    shellQuote(configPath),
+    "--max-cycles",
+    "300",
+    "--interval-ms",
+    "5000",
+    "--log-json",
+  ].join(" ");
+}
+
+function shellCommandStorageKey(configPath: string): string {
+  return `northstar.shellCommand:${configPath}`;
 }
 
 const centeredStyle: React.CSSProperties = {
   height: "100%", display: "flex", alignItems: "center", justifyContent: "center",
   padding: 24, textAlign: "center", color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6,
 };
+
+const contextPanelTop = 92;
+const contextPanelRight = 18;
+const contextPanelWidth = 440;
+const contextPanelBottomGap = 20;
 
 const iconStroke: React.CSSProperties = { width: 14, height: 14, display: "block" };
 
@@ -115,22 +121,6 @@ function RefreshIcon() {
   );
 }
 
-function StartIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" style={iconStroke}>
-      <path d="M8 5v14l11-7z" />
-    </svg>
-  );
-}
-
-function StopIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" style={iconStroke}>
-      <rect x="6" y="6" width="12" height="12" rx="1.5" />
-    </svg>
-  );
-}
-
 function StreamIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={iconStroke}>
@@ -139,15 +129,6 @@ function StreamIcon() {
       <path d="M7.76 16.24a6 6 0 0 1 0-8.48" />
       <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
       <path d="M4.93 19.07a10 10 0 0 1 0-14.14" />
-    </svg>
-  );
-}
-
-function EditIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={iconStroke}>
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
     </svg>
   );
 }
@@ -320,13 +301,13 @@ function Column({ lifecycle, cards, repo, initiallyCollapsed, onCardClick, onOpe
   }
 
   return (
-    <section className="northstar-state-column" style={{ display: "flex", flexDirection: "column", minWidth: 220, maxWidth: 280, flex: "1 1 220px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg)", maxHeight: "100%" }}>
+    <section className="northstar-state-column" style={{ display: "flex", flexDirection: "column", minWidth: 220, maxWidth: 280, flex: "1 1 220px", height: "100%", minHeight: 0, border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg)", overflow: "hidden" }}>
       <div className="ns-surface-interactive" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderBottom: "1px solid var(--border)", cursor: "pointer", flexShrink: 0 }}
         onClick={() => setCollapsed(true)}>
         <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", textTransform: "capitalize" }}>{label}</span>
         <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{cards.length}</span>
       </div>
-      <div className="northstar-state-scroll" style={{ display: "flex", flexDirection: "column", gap: 8, padding: 8, overflow: "auto" }}>
+      <div className="northstar-state-scroll" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 8, padding: 8, overflowY: "auto", overflowX: "hidden", scrollbarGutter: "stable" }}>
         {sorted.length === 0
           ? <div style={{ fontSize: 12, color: "var(--text-dim)", padding: "4px 2px" }}>No issues</div>
           : sorted.map((card) => (
@@ -345,27 +326,25 @@ function Column({ lifecycle, cards, repo, initiallyCollapsed, onCardClick, onOpe
   );
 }
 
-type ContextTab = "chat" | "issue" | "watch";
+type ContextTab = "chat" | "issue" | "sse" | "watch";
 
 export function NorthstarBoard({ configPath, chatPanel }: { configPath: string | null; chatPanel?: ReactNode }) {
   const [board, setBoard] = useState<NorthstarBoardModel | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [drawerCard, setDrawerCard] = useState<NorthstarBoardCard | null>(null);
   const [selectedCard, setSelectedCard] = useState<NorthstarBoardCard | null>(null);
   const [contextTab, setContextTab] = useState<ContextTab>("chat");
+  const [contextPanelOpen, setContextPanelOpen] = useState(false);
 
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
-  const [watchSessionId, setWatchSessionId] = useState<string | null>(null);
-  const [watchActive, setWatchActive] = useState(false);
-  const [watchBusy, setWatchBusy] = useState(false);
-  const [watchError, setWatchError] = useState<string | null>(null);
-  const [watchPanelHeight, setWatchPanelHeight] = useState(220);
-  const [watchPrompt, setWatchPrompt] = useState(DEFAULT_WATCH_PROMPT);
-  const [watchPromptDraft, setWatchPromptDraft] = useState(DEFAULT_WATCH_PROMPT);
-  const [watchPromptEditorOpen, setWatchPromptEditorOpen] = useState(false);
-
-  const [sseModalCard, setSseModalCard] = useState<NorthstarBoardCard | null>(null);
+  const [shellCommand, setShellCommand] = useState("");
+  const [shellCommandSaved, setShellCommandSaved] = useState(false);
+  const [shellOutput, setShellOutput] = useState("");
+  const [shellRunning, setShellRunning] = useState(false);
+  const [shellError, setShellError] = useState<string | null>(null);
+  const [shellExit, setShellExit] = useState<ShellExit | null>(null);
+  const shellAbortRef = useRef<AbortController | null>(null);
+  const shellOutputRef = useRef<HTMLPreElement | null>(null);
 
   const load = useCallback(async (cfg: string | null) => {
     if (!cfg) { setBoard(null); setError(null); return; }
@@ -386,74 +365,100 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
     }
   }, []);
 
-  const stopWatch = useCallback(async (reason: "manual" | "auto") => {
-    if (!watchSessionId) return;
-
-    setWatchBusy(true);
-    setWatchError(null);
-
-    try {
-      await postJson(`/api/agent/${encodeURIComponent(watchSessionId)}`, { type: "abort" });
-    } catch {
-      // continue; prompt may still stop the session cleanly
-    }
-
-    try {
-      const stopMessage = reason === "auto"
-        ? `${STOP_WATCH_PROMPT}\n\n原因：目前 board 無待處理 issue。`
-        : STOP_WATCH_PROMPT;
-      await postJson(`/api/agent/${encodeURIComponent(watchSessionId)}`, { type: "prompt", message: stopMessage });
-      setWatchActive(false);
-    } catch (e) {
-      setWatchError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setWatchBusy(false);
-    }
-  }, [watchSessionId]);
-
-  const startWatch = useCallback(async () => {
-    if (!configPath) return;
-    setWatchBusy(true);
-    setWatchError(null);
-
-    try {
-      const cwd = configToCwd(configPath);
-      const payload = await postJson<{ success: boolean; sessionId: string }>("/api/agent/new", {
-        cwd,
-        type: "prompt",
-        message: watchPrompt.trim() || DEFAULT_WATCH_PROMPT,
-      });
-      setWatchSessionId(payload.sessionId);
-      setWatchActive(true);
-      setContextTab("watch");
-    } catch (e) {
-      setWatchError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setWatchBusy(false);
-    }
-  }, [configPath, watchPrompt]);
-
-  const openWatchPromptEditor = useCallback(() => {
-    setWatchPromptDraft(watchPrompt);
-    setWatchPromptEditorOpen(true);
-  }, [watchPrompt]);
-
-  const saveWatchPrompt = useCallback(() => {
-    if (!configPath) return;
-    const next = watchPromptDraft.trim();
-    if (!next) return;
-    setWatchPrompt(next);
-    try {
-      window.localStorage.setItem(watchPromptStorageKey(configPath), next);
-    } catch {
-      // Browser storage may be unavailable; keep the in-memory prompt for this tab.
-    }
-    setWatchPromptEditorOpen(false);
-  }, [configPath, watchPromptDraft]);
-
-  const resetWatchPrompt = useCallback(() => {
-    setWatchPromptDraft(DEFAULT_WATCH_PROMPT);
+  const stopShellCommand = useCallback(() => {
+    shellAbortRef.current?.abort();
+    shellAbortRef.current = null;
+    setShellRunning(false);
+    setShellOutput((prev) => `${prev}${prev.endsWith("\n") || !prev ? "" : "\n"}[terminated]\n`);
   }, []);
+
+  const appendShellEvent = useCallback((event: ShellEvent) => {
+    if (event.type === "start") {
+      setShellOutput((prev) => `${prev}[cwd] ${event.cwd}\n[shell] ${event.shell}\n`);
+      return;
+    }
+    if (event.type === "stdout" || event.type === "stderr") {
+      setShellOutput((prev) => `${prev}${event.text}`);
+      return;
+    }
+    if (event.type === "error") {
+      setShellError(event.message);
+      setShellOutput((prev) => `${prev}${prev.endsWith("\n") || !prev ? "" : "\n"}[error] ${event.message}\n`);
+      return;
+    }
+    setShellExit({ code: event.code, signal: event.signal });
+    setShellOutput((prev) => `${prev}${prev.endsWith("\n") || !prev ? "" : "\n"}[exit] code=${event.code ?? "null"} signal=${event.signal ?? "null"}\n`);
+  }, []);
+
+  const runShellCommand = useCallback(async () => {
+    if (!configPath) return;
+    const command = shellCommand.trim();
+    if (!command || shellRunning) return;
+
+    const controller = new AbortController();
+    shellAbortRef.current = controller;
+    setShellRunning(true);
+    setShellError(null);
+    setShellExit(null);
+    setShellOutput(`$ ${command}\n`);
+    setContextTab("watch");
+    setContextPanelOpen(true);
+
+    try {
+      const res = await fetch("/api/northstar/shell", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config: configPath, command }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null) as { error?: string } | null;
+        throw new Error(payload?.error ?? `Shell request failed with ${res.status}`);
+      }
+      if (!res.body) throw new Error("Shell response did not include a stream");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          appendShellEvent(JSON.parse(line) as ShellEvent);
+        }
+      }
+      buffer += decoder.decode();
+      if (buffer.trim()) appendShellEvent(JSON.parse(buffer) as ShellEvent);
+    } catch (e) {
+      if (!(e instanceof DOMException && e.name === "AbortError")) {
+        const message = e instanceof Error ? e.message : String(e);
+        setShellError(message);
+        setShellOutput((prev) => `${prev}${prev.endsWith("\n") || !prev ? "" : "\n"}[error] ${message}\n`);
+      }
+    } finally {
+      if (shellAbortRef.current === controller) shellAbortRef.current = null;
+      setShellRunning(false);
+    }
+  }, [appendShellEvent, configPath, shellCommand, shellRunning]);
+
+  const saveShellCommand = useCallback(() => {
+    if (!configPath) return;
+    const command = shellCommand.trim();
+    if (!command) return;
+    try {
+      window.localStorage.setItem(shellCommandStorageKey(configPath), command);
+      setShellCommand(command);
+      setShellCommandSaved(true);
+    } catch {
+      setShellCommandSaved(false);
+    }
+  }, [configPath, shellCommand]);
 
   useEffect(() => {
     void load(configPath);
@@ -461,19 +466,30 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
 
   useEffect(() => {
     if (!configPath) {
-      setWatchPrompt(DEFAULT_WATCH_PROMPT);
-      setWatchPromptDraft(DEFAULT_WATCH_PROMPT);
+      setShellCommand("");
+      setShellCommandSaved(false);
+      setShellOutput("");
+      setShellError(null);
+      setShellExit(null);
       return;
     }
+    const fallback = defaultShellCommand(configPath);
     try {
-      const stored = window.localStorage.getItem(watchPromptStorageKey(configPath));
-      const next = stored?.trim() ? stored : DEFAULT_WATCH_PROMPT;
-      setWatchPrompt(next);
-      setWatchPromptDraft(next);
+      const stored = window.localStorage.getItem(shellCommandStorageKey(configPath));
+      if (stored?.trim()) {
+        setShellCommand(stored.trim());
+        setShellCommandSaved(true);
+      } else {
+        setShellCommand(fallback);
+        setShellCommandSaved(false);
+      }
     } catch {
-      setWatchPrompt(DEFAULT_WATCH_PROMPT);
-      setWatchPromptDraft(DEFAULT_WATCH_PROMPT);
+      setShellCommand(fallback);
+      setShellCommandSaved(false);
     }
+    setShellOutput("");
+    setShellError(null);
+    setShellExit(null);
   }, [configPath]);
 
   useEffect(() => {
@@ -489,18 +505,25 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
   const handleSelectCard = useCallback((card: NorthstarBoardCard) => {
     setSelectedCard(card);
     setContextTab("issue");
+    setContextPanelOpen(true);
   }, []);
 
   const handleOpenSse = useCallback((card: NorthstarBoardCard) => {
     setSelectedCard(card);
-    setSseModalCard(card);
+    setContextTab("sse");
+    setContextPanelOpen(true);
+  }, []);
+
+  const openContextTab = useCallback((tab: ContextTab) => {
+    setContextTab(tab);
+    setContextPanelOpen(true);
   }, []);
 
   useEffect(() => {
-    if (!watchActive || !watchSessionId || watchBusy) return;
-    if (pendingCount !== 0) return;
-    void stopWatch("auto");
-  }, [pendingCount, stopWatch, watchActive, watchBusy, watchSessionId]);
+    const node = shellOutputRef.current;
+    if (!node) return;
+    node.scrollTop = node.scrollHeight;
+  }, [shellOutput]);
 
   if (!configPath) return <div style={centeredStyle}>Select a project directory with a <code>.northstar.yaml</code> file.</div>;
   if (loading && !board) return <div style={centeredStyle}>Loading Northstar board…</div>;
@@ -525,81 +548,32 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", minWidth: 0, position: "relative" }}>
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 14px", borderBottom: "1px solid var(--border)", background: "var(--bg)", flexShrink: 0, minWidth: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 12px", borderBottom: "1px solid var(--border)", background: "var(--bg)", flexShrink: 0, minWidth: 0 }}>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 15, fontWeight: 650, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{board.project.name}</div>
-          <div style={{ display: "flex", gap: 10, marginTop: 2, color: "var(--text-muted)", fontSize: 12 }}>
+          <div style={{ fontSize: 14, fontWeight: 650, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{board.project.name}</div>
+          <div style={{ display: "flex", gap: 10, marginTop: 1, color: "var(--text-muted)", fontSize: 11 }}>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{board.project.repo}</span>
             <span style={{ flexShrink: 0 }}>host: {board.project.hostAdapter}</span>
-          </div>
-          <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--text-muted)" }}>
-              <input
-                type="checkbox"
-                checked={autoRefreshEnabled}
-                onChange={(e) => setAutoRefreshEnabled(e.target.checked)}
-                style={{ accentColor: "var(--accent)" }}
-              />
-              Auto refresh (60s)
-            </label>
-            <span style={{ fontSize: 11, color: watchActive ? "#16a34a" : "var(--text-dim)" }}>
-              watch: {watchActive ? "running" : "stopped"}
+            <span style={{ fontSize: 11, color: shellRunning ? "#16a34a" : "var(--text-dim)" }}>
+              terminal: {shellRunning ? "running" : "idle"}
             </span>
             <span style={{ fontSize: 11, color: "var(--text-dim)" }}>pending: {pendingCount}</span>
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
           <button className="ns-btn" type="button" title="Refresh" aria-label="Refresh" onClick={() => void load(configPath)} style={headerIconButtonStyle}><RefreshIcon /></button>
+          <label title="Auto refresh every 60 seconds" style={{ height: 26, display: "inline-flex", alignItems: "center", gap: 5, padding: "0 8px", border: "1px solid var(--border)", borderRadius: 5, background: "var(--bg-panel)", fontSize: 11, color: "var(--text-muted)", cursor: "pointer", whiteSpace: "nowrap" }}>
+            <input
+              type="checkbox"
+              checked={autoRefreshEnabled}
+              onChange={(e) => setAutoRefreshEnabled(e.target.checked)}
+              style={{ accentColor: "var(--accent)", margin: 0 }}
+            />
+            60s
+          </label>
         </div>
       </div>
-
-      {watchPromptEditorOpen && (
-        <div
-          role="presentation"
-          onClick={() => setWatchPromptEditorOpen(false)}
-          style={{ position: "fixed", inset: 0, zIndex: 1300, background: "rgba(0,0,0,0.38)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
-        >
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-label="Edit monitor prompt"
-            onClick={(e) => e.stopPropagation()}
-            style={{ width: "min(640px, calc(100vw - 32px))", background: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 6, boxShadow: "0 18px 50px rgba(0,0,0,0.3)", overflow: "hidden" }}
-          >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700 }}>Monitor Prompt</div>
-                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>Used when starting Northstar watch for this project.</div>
-              </div>
-              <button className="ns-btn" type="button" onClick={() => setWatchPromptEditorOpen(false)} style={{ ...headerIconButtonStyle, width: 28 }} aria-label="Close monitor prompt editor" title="Close">
-                ✕
-              </button>
-            </div>
-            <div style={{ padding: 12 }}>
-              <textarea
-                value={watchPromptDraft}
-                onChange={(e) => setWatchPromptDraft(e.target.value)}
-                spellCheck={false}
-                style={{ width: "100%", minHeight: 210, boxSizing: "border-box", resize: "vertical", border: "1px solid var(--border)", borderRadius: 5, padding: 10, background: "var(--bg-panel)", color: "var(--text)", fontFamily: "var(--font-mono)", fontSize: 12, lineHeight: 1.5, outline: "none" }}
-              />
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginTop: 10 }}>
-                <button className="ns-btn" type="button" onClick={resetWatchPrompt} style={btnLikeStyle}>
-                  Reset default
-                </button>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button className="ns-btn" type="button" onClick={() => setWatchPromptEditorOpen(false)} style={btnLikeStyle}>
-                    Cancel
-                  </button>
-                  <button className="ns-btn" type="button" onClick={saveWatchPrompt} disabled={!watchPromptDraft.trim()} style={{ ...btnLikeStyle, background: "var(--accent)", borderColor: "var(--accent)", color: "white", opacity: watchPromptDraft.trim() ? 1 : 0.55 }}>
-                    Save
-                  </button>
-                </div>
-              </div>
-            </div>
-          </section>
-        </div>
-      )}
 
       {problemCount > 0 && (
         <div style={{ padding: "6px 14px", background: "#7c1d1d22", borderBottom: "1px solid #ef444433", fontSize: 12, color: "#ef4444", flexShrink: 0 }}>
@@ -609,8 +583,8 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
         </div>
       )}
 
-      <div className="northstar-workbench-main" style={{ flex: 1, minHeight: 0, overflow: "hidden", display: "flex" }}>
-        <div style={{ flex: 1, minWidth: 0, overflow: "auto", padding: 12, display: "flex", gap: 10, alignItems: "flex-start" }}>
+      <div className="northstar-workbench-main" style={{ flex: 1, minHeight: 0, overflow: "hidden", position: "relative" }}>
+        <div style={{ height: "100%", minWidth: 0, overflow: "auto", padding: 12, display: "flex", gap: 10, alignItems: "flex-start" }}>
           {LIFECYCLE_ORDER.filter((lifecycle) => (cardsByLifecycle.get(lifecycle) ?? []).length > 0).map((lifecycle) => {
             const cards = cardsByLifecycle.get(lifecycle) ?? [];
             return (
@@ -631,40 +605,70 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
           )}
         </div>
 
-        <aside className="northstar-context-panel" style={{ width: 430, minWidth: 360, maxWidth: "42vw", borderLeft: "1px solid var(--border)", background: "var(--bg)", display: "flex", flexDirection: "column", minHeight: 0 }}>
-          <section style={{ padding: "10px 12px", borderBottom: "1px solid var(--border)", background: "var(--bg-panel)", flexShrink: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>Project Controls</div>
-                <div style={{ marginTop: 2, fontSize: 11, color: watchActive ? "#16a34a" : "var(--text-dim)" }}>
-                  watch: {watchActive ? "running" : "stopped"} · pending: {pendingCount}
-                </div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                {!watchActive ? (
-                  <button className="ns-btn" type="button" title="Start watch" aria-label="Start watch" onClick={() => void startWatch()} disabled={watchBusy} style={{ ...headerIconButtonStyle, opacity: watchBusy ? 0.6 : 1 }}>
-                    <StartIcon />
-                  </button>
-                ) : (
-                  <button className="ns-btn" type="button" title="Stop watch" aria-label="Stop watch" onClick={() => void stopWatch("manual")} disabled={watchBusy || !watchSessionId} style={{ ...headerIconButtonStyle, opacity: watchBusy ? 0.6 : 1 }}>
-                    <StopIcon />
-                  </button>
-                )}
-                <button className="ns-btn" type="button" title="Edit monitor prompt" aria-label="Edit monitor prompt" onClick={openWatchPromptEditor} style={headerIconButtonStyle}>
-                  <EditIcon />
-                </button>
-                <button className="ns-btn" type="button" title="Watch stream" aria-label="Watch stream" onClick={() => setContextTab("watch")} style={{ ...headerIconButtonStyle, color: contextTab === "watch" ? "var(--accent)" : "var(--text)" }}>
-                  <StreamIcon />
-                </button>
-              </div>
-            </div>
-            {watchError && <div style={{ marginTop: 6, fontSize: 11, color: "#ef4444" }}>{watchError}</div>}
-          </section>
+        {!contextPanelOpen && (
+          <div
+            aria-label="Open context panel"
+            style={{
+              position: "fixed",
+              top: contextPanelTop,
+              right: contextPanelRight,
+              zIndex: 940,
+              display: "flex",
+              gap: 6,
+              padding: 6,
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              background: "var(--bg)",
+              boxShadow: "0 10px 28px rgba(0,0,0,0.18)",
+            }}
+          >
+            {([
+              { id: "chat", label: "Chat" },
+              { id: "issue", label: selectedCard?.issueNumber ? `Issue #${selectedCard.issueNumber}` : "Issue" },
+              { id: "sse", label: "SSE" },
+              { id: "watch", label: "Watch" },
+            ] as { id: ContextTab; label: string }[]).map((tab) => (
+              <button
+                key={tab.id}
+                className="ns-btn"
+                type="button"
+                onClick={() => openContextTab(tab.id)}
+                style={{ ...btnLikeStyle, height: 26, background: contextTab === tab.id ? "var(--bg-selected)" : "var(--bg-panel)" }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        )}
 
+        {contextPanelOpen && (
+          <aside
+            className="northstar-context-panel"
+            style={{
+              position: "fixed",
+              top: contextPanelTop,
+              right: contextPanelRight,
+              zIndex: 950,
+              width: `min(${contextPanelWidth}px, calc(100% - ${contextPanelRight * 2}px))`,
+              height: `calc(100vh - ${contextPanelTop + contextPanelBottomGap}px)`,
+              maxWidth: `min(${contextPanelWidth}px, calc(100% - ${contextPanelRight * 2}px))`,
+              maxHeight: `calc(100vh - ${contextPanelTop + contextPanelBottomGap}px)`,
+              minWidth: 0,
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              background: "var(--bg)",
+              display: "flex",
+              flexDirection: "column",
+              minHeight: 0,
+              overflow: "hidden",
+              boxShadow: "0 18px 48px rgba(0,0,0,0.24)",
+            }}
+          >
           <div style={{ display: "flex", alignItems: "stretch", height: 34, borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
             {([
               { id: "chat", label: "Chat", disabled: false },
               { id: "issue", label: selectedCard?.issueNumber ? `Issue #${selectedCard.issueNumber}` : "Issue", disabled: false },
+              { id: "sse", label: "SSE", disabled: false },
               { id: "watch", label: "Watch", disabled: false },
             ] as { id: ContextTab; label: string; disabled: boolean }[]).map((tab) => {
               const active = contextTab === tab.id;
@@ -694,6 +698,24 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
                 </button>
               );
             })}
+            <button
+              className="ns-btn"
+              type="button"
+              onClick={() => setContextPanelOpen(false)}
+              style={{
+                width: 34,
+                border: "none",
+                borderTop: "2px solid transparent",
+                background: "var(--bg-panel)",
+                color: "var(--text-muted)",
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+              aria-label="Close context panel"
+              title="Close"
+            >
+              ✕
+            </button>
           </div>
 
           <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
@@ -715,49 +737,95 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
                         stage: {selectedCard.currentStage ?? "none"} · host: {selectedCard.latestHostAdapter ?? "unknown"}
                       </div>
                     </div>
-                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                      <button className="ns-btn" type="button" onClick={() => setDrawerCard(selectedCard)} style={btnLikeStyle}>Details</button>
-                      <button className="ns-btn" type="button" onClick={() => setSseModalCard(selectedCard)} style={btnLikeStyle}>Pop out</button>
-                    </div>
                   </div>
                 )}
-                <div style={{ flex: 1, minHeight: 0 }}>
-                  <IssueSsePanel
-                    card={selectedCard}
-                    projectId={board.project.projectId}
-                    configPath={configPath}
-                    embedded
-                  />
-                </div>
+                {selectedCard && (
+                  <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+                    <IssueDrawer
+                      card={selectedCard}
+                      projectId={board.project.projectId}
+                      configPath={configPath}
+                      embedded
+                    />
+                  </div>
+                )}
+                {!selectedCard && (
+                  <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12, padding: 16, textAlign: "center" }}>
+                    Select an issue card to view details.
+                  </div>
+                )}
               </div>
-            ) : (
-              <WatchSsePanel
-                sessionId={watchSessionId}
-                height={watchPanelHeight}
-                onHeightChange={setWatchPanelHeight}
-                onSessionEnded={() => setWatchActive(false)}
+            ) : contextTab === "sse" ? (
+              <IssueSsePanel
+                card={selectedCard}
+                projectId={board.project.projectId}
+                configPath={configPath}
                 embedded
               />
+            ) : (
+              <div style={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column" }}>
+                <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 12px", borderBottom: "1px solid var(--border)" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>Shell Terminal</div>
+                    <div style={{ marginTop: 2, fontSize: 11, color: shellRunning ? "#16a34a" : "var(--text-dim)" }}>
+                      {shellRunning ? "running" : shellCommandSaved ? "saved" : "idle"}{shellExit ? ` · last exit ${shellExit.code ?? "null"}` : ""}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                    {shellRunning && <button className="ns-btn" type="button" onClick={stopShellCommand} style={btnLikeStyle}>Stop</button>}
+                    <button className="ns-btn" type="button" onClick={saveShellCommand} disabled={shellRunning || !shellCommand.trim()} style={{ ...btnLikeStyle, opacity: shellRunning || !shellCommand.trim() ? 0.55 : 1 }}>Save</button>
+                    <button className="ns-btn" type="button" onClick={() => { if (configPath) { setShellCommand(defaultShellCommand(configPath)); setShellCommandSaved(false); } }} disabled={shellRunning} style={{ ...btnLikeStyle, opacity: shellRunning ? 0.55 : 1 }}>Default</button>
+                    <button className="ns-btn" type="button" onClick={() => void runShellCommand()} disabled={shellRunning || !shellCommand.trim()} style={{ ...btnLikeStyle, background: "var(--accent)", borderColor: "var(--accent)", color: "white", opacity: shellRunning || !shellCommand.trim() ? 0.55 : 1 }}>Run</button>
+                  </div>
+                </div>
+                <div style={{ flexShrink: 0, display: "flex", alignItems: "flex-start", gap: 8, padding: 10, borderBottom: "1px solid var(--border)", background: "var(--tool-bg)" }}>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--accent)", lineHeight: "20px" }}>$</span>
+                  <textarea
+                    value={shellCommand}
+                    onChange={(e) => { setShellCommand(e.target.value); setShellCommandSaved(false); }}
+                    spellCheck={false}
+                    rows={4}
+                    aria-label="Shell command"
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      resize: "vertical",
+                      border: "none",
+                      outline: "none",
+                      background: "transparent",
+                      color: "var(--text)",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 12,
+                      lineHeight: 1.45,
+                    }}
+                  />
+                </div>
+                {shellError && <div style={{ flexShrink: 0, padding: "6px 12px", borderBottom: "1px solid var(--border)", fontSize: 11, color: "#ef4444" }}>{shellError}</div>}
+                {shellExit && <div style={{ flexShrink: 0, padding: "6px 12px", borderBottom: "1px solid var(--border)", fontSize: 11, color: "var(--text-dim)" }}>Last exit: code={shellExit.code ?? "null"} signal={shellExit.signal ?? "null"}</div>}
+                <pre
+                  ref={shellOutputRef}
+                  aria-label="Shell output"
+                  style={{
+                    flex: 1,
+                    minHeight: 0,
+                    margin: 0,
+                    overflow: "auto",
+                    padding: 12,
+                    background: "var(--bg)",
+                    color: "var(--text)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 11,
+                    lineHeight: 1.5,
+                    whiteSpace: "pre-wrap",
+                  }}
+                >{shellOutput || "No command has run yet."}</pre>
+              </div>
             )}
           </div>
         </aside>
+        )}
       </div>
 
-      {drawerCard && (
-        <IssueDrawer
-          card={drawerCard}
-          projectId={board.project.projectId}
-          configPath={configPath}
-          onClose={() => setDrawerCard(null)}
-        />
-      )}
-
-      <IssueSseModal
-        card={sseModalCard}
-        projectId={board.project.projectId}
-        configPath={configPath}
-        onClose={() => setSseModalCard(null)}
-      />
     </div>
   );
 }

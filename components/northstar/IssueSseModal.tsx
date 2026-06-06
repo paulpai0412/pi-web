@@ -31,6 +31,8 @@ interface PanelProps {
 
 type StreamAdapter = "pi" | "codex" | "opencode";
 
+const DETAIL_REFRESH_MS = 3000;
+
 type IssueSseTarget =
   | { type: "events"; key: "events"; label: string }
   | {
@@ -240,22 +242,28 @@ export function IssueSsePanel({ card, projectId, configPath, onClose, embedded =
     setDetailError(null);
     setSelectedTargetKey(null);
     setTargetTouched(false);
-    const url = `/api/northstar/projects/${encodeURIComponent(projectId)}/issues/${encodeURIComponent(cardIssueId)}?config=${encodeURIComponent(configPath)}`;
-    fetch(url)
-      .then(async (res) => {
+
+    const loadDetail = async () => {
+      const url = `/api/northstar/projects/${encodeURIComponent(projectId)}/issues/${encodeURIComponent(cardIssueId)}?config=${encodeURIComponent(configPath)}`;
+      try {
+        const res = await fetch(url);
         const body = (await res.json()) as { issue?: NorthstarIssueDetail; error?: string };
         if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
-        return body.issue ?? null;
-      })
-      .then((issue) => {
-        if (!cancelled) setDetail(issue);
-      })
-      .catch((error) => {
+        if (!cancelled) {
+          setDetail(body.issue ?? null);
+          setDetailError(null);
+        }
+      } catch (error) {
         if (!cancelled) setDetailError(String(error));
-      });
+      }
+    };
+
+    void loadDetail();
+    const intervalId = window.setInterval(() => void loadDetail(), DETAIL_REFRESH_MS);
 
     return () => {
       cancelled = true;
+      window.clearInterval(intervalId);
     };
   }, [cardIssueId, configPath, projectId]);
 
