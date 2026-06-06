@@ -58,7 +58,12 @@ function shortenCwd(cwd: string, homeDir?: string): string {
   return "…/" + parts.slice(-2).join(sep);
 }
 
-
+function isNorthstarRuntimeSession(session: SessionInfo): boolean {
+  const firstMessage = session.firstMessage.trim();
+  return session.cwd.includes("/.northstar/runtime/") ||
+    firstMessage.startsWith("You are executing a Northstar software-development") ||
+    firstMessage.startsWith("請啟動 northstar skill watch");
+}
 
 interface SessionTreeNode {
   session: SessionInfo;
@@ -287,7 +292,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         // Session not found — notify parent so it can show the placeholder
         onInitialRestoreDone?.();
       }
-      const cwds = getRecentCwds(allSessions);
+      const cwds = getRecentCwds(allSessions.filter((session) => !isNorthstarRuntimeSession(session)));
       if (cwds.length > 0) setSelectedCwd(cwds[0]);
     }
   }, [allSessions, selectedCwd, initialSessionId, onSelectSession, onInitialRestoreDone]);
@@ -338,10 +343,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onNewSession?.(tempId, selectedCwd);
   }, [selectedCwd, onNewSession]);
 
-  const recentCwds = getRecentCwds(allSessions);
+  const visibleSessions = allSessions.filter((session) => !isNorthstarRuntimeSession(session));
+  const recentCwds = getRecentCwds(visibleSessions);
   const filteredSessions = selectedCwd
-    ? allSessions.filter((s) => s.cwd === selectedCwd)
-    : allSessions;
+    ? visibleSessions.filter((s) => s.cwd === selectedCwd)
+    : visibleSessions;
 
   // Build parent-child tree within the filtered set
   const sessionTree = buildSessionTree(filteredSessions);

@@ -117,6 +117,21 @@ body {
   background: var(--text-dim);
 }
 
+@media (max-width: 1100px) {
+  .northstar-workbench-main {
+    flex-direction: column;
+  }
+
+  .northstar-context-panel {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    height: 44%;
+    border-left: none !important;
+    border-top: 1px solid var(--border);
+  }
+}
+
 :root {
   --font-mono: var(--font-noto-mono), 'JetBrains Mono', 'Fira Code', 'Consolas', ui-monospace, 'PingFang SC', 'Microsoft YaHei', monospace;
 }
@@ -366,4 +381,3 @@ span.linenumber {
 .ns-surface-interactive:hover {
   background: var(--bg-hover) !important;
 }
-

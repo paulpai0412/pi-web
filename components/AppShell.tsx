@@ -99,8 +99,8 @@ export function AppShell() {
 
   const [initialSessionId] = useState<string | null>(() => searchParams.get("session"));
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
-  // >>> northstar: workspace-view id is registry-driven ("chat" or a WORKSPACE_VIEWS id)
-  const [workspaceView, setWorkspaceView] = useState<string>("chat");
+  // >>> northstar: workspace-view id is registry-driven. Chat is embedded in the Northstar workbench.
+  const [workspaceView, setWorkspaceView] = useState<string>("northstar");
   // <<< northstar
   // True once the initial ?session= URL param has been resolved (or confirmed absent)
   const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => !searchParams.get("session"));
@@ -130,7 +130,7 @@ export function AppShell() {
   }, [router]);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
-    setWorkspaceView("chat");
+    setWorkspaceView("northstar");
     setNewSessionCwd(null);
     setSelectedSession(session);
     setSessionKey((k) => k + 1);
@@ -150,7 +150,7 @@ export function AppShell() {
   }, [router]);
 
   const handleNewSession = useCallback((_sessionId: string, cwd: string) => {
-    setWorkspaceView("chat");
+    setWorkspaceView("northstar");
     setSelectedSession(null);
     setNewSessionCwd(cwd);
     setSessionKey((k) => k + 1);
@@ -163,7 +163,7 @@ export function AppShell() {
 
   // Called by ChatWindow when a new session gets its real id from pi
   const handleSessionCreated = useCallback((session: SessionInfo) => {
-    setWorkspaceView("chat");
+    setWorkspaceView("northstar");
     setNewSessionCwd(null);
     setSelectedSession(session);
     setRefreshKey((k) => k + 1);
@@ -176,7 +176,7 @@ export function AppShell() {
   }, []);
 
   const handleSessionForked = useCallback((newSessionId: string) => {
-    setWorkspaceView("chat");
+    setWorkspaceView("northstar");
     setRefreshKey((k) => k + 1);
     setSessionKey((k) => k + 1);
     setNewSessionCwd(null);
@@ -236,6 +236,27 @@ export function AppShell() {
   const showPlaceholder = initialSessionRestored && !showChat;
 
   const activeFileTab = fileTabs.find((t) => t.id === activeFileTabId) ?? null;
+
+  const chatPanel = showChat ? (
+    <ChatWindow
+      key={sessionKey}
+      session={selectedSession}
+      newSessionCwd={effectiveNewSessionCwd}
+      onAgentEnd={handleAgentEnd}
+      onSessionCreated={handleSessionCreated}
+      onSessionForked={handleSessionForked}
+      modelsRefreshKey={modelsRefreshKey}
+      chatInputRef={chatInputRef}
+      onBranchDataChange={handleBranchDataChange}
+      onSystemPromptChange={handleSystemPromptChange}
+      onSessionStatsChange={handleSessionStatsChange}
+      onContextUsageChange={handleContextUsageChange}
+    />
+  ) : (
+    <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12, padding: 16, textAlign: "center" }}>
+      Select a project directory to start chatting.
+    </div>
+  );
 
   const sidebarContent = (
     <>
@@ -441,7 +462,7 @@ export function AppShell() {
             </div>
           )}
           {/* Session stats — right-aligned in top bar (chat view only) */}
-          {showChat && workspaceView === "chat" && (sessionStats || contextUsage) && (() => {
+          {showChat && (workspaceView === "chat" || workspaceView === "northstar") && (sessionStats || contextUsage) && (() => {
             const t = sessionStats?.tokens;
             const c = sessionStats?.cost ?? 0;
             const fmt = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n);
@@ -571,22 +592,9 @@ export function AppShell() {
         <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
           {/* >>> northstar: non-chat views render from the registry */}
           {workspaceView !== "chat" ? (
-            renderWorkspaceView(workspaceView, { activeCwd })
+            renderWorkspaceView(workspaceView, { activeCwd, chatPanel })
           ) : /* <<< northstar */ showChat ? (
-            <ChatWindow
-              key={sessionKey}
-              session={selectedSession}
-              newSessionCwd={effectiveNewSessionCwd}
-              onAgentEnd={handleAgentEnd}
-              onSessionCreated={handleSessionCreated}
-              onSessionForked={handleSessionForked}
-              modelsRefreshKey={modelsRefreshKey}
-              chatInputRef={chatInputRef}
-              onBranchDataChange={handleBranchDataChange}
-              onSystemPromptChange={handleSystemPromptChange}
-              onSessionStatsChange={handleSessionStatsChange}
-              onContextUsageChange={handleContextUsageChange}
-            />
+            chatPanel
           ) : showPlaceholder ? (
             activeCwd ? (
               <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 15 }}>

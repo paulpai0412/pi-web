@@ -21,6 +21,14 @@ interface Props {
   onClose: () => void;
 }
 
+interface PanelProps {
+  card: NorthstarBoardCard | null;
+  projectId: string;
+  configPath: string;
+  onClose?: () => void;
+  embedded?: boolean;
+}
+
 type StreamAdapter = "pi" | "codex" | "opencode";
 
 type IssueSseTarget =
@@ -211,7 +219,7 @@ function buildToolResultsMap(messages: AgentMessage[]): Map<string, ToolResultMe
   return map;
 }
 
-export function IssueSseModal({ card, projectId, configPath, onClose }: Props) {
+export function IssueSsePanel({ card, projectId, configPath, onClose, embedded = false }: PanelProps) {
   const [detail, setDetail] = useState<NorthstarIssueDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [selectedTargetKey, setSelectedTargetKey] = useState<string | null>(null);
@@ -295,20 +303,24 @@ export function IssueSseModal({ card, projectId, configPath, onClose }: Props) {
 
   const toolResultsMap = useMemo(() => buildToolResultsMap(messages), [messages]);
 
-  if (!card) return null;
+  if (!card) {
+    if (!embedded) return null;
+    return (
+      <section style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, color: "var(--text-dim)", fontSize: 12, textAlign: "center" }}>
+        Select an issue card to inspect its live stream.
+      </section>
+    );
+  }
 
   const issueLabel = card.issueNumber ? `#${card.issueNumber}` : card.issueId;
   const live = useSessionStream ? piLive : pollLive;
   const reconnecting = useSessionStream ? isReconnecting : false;
+  const containerStyle: React.CSSProperties = embedded
+    ? { height: "100%", border: "none", background: "var(--bg)", display: "flex", flexDirection: "column", overflow: "hidden" }
+    : { width: "min(920px, 96vw)", height: "min(70vh, 700px)", border: "1px solid var(--border)", borderRadius: 8, background: "var(--bg)", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.22)" };
 
   return (
-    <div
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.38)", zIndex: 1200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
-    >
-      <section style={{ width: "min(920px, 96vw)", height: "min(70vh, 700px)", border: "1px solid var(--border)", borderRadius: 8, background: "var(--bg)", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.22)" }}>
+      <section style={containerStyle}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -331,7 +343,7 @@ export function IssueSseModal({ card, projectId, configPath, onClose }: Props) {
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
             {useSessionStream && reconnectAttempts >= 5 && <button className="ns-btn" type="button" onClick={reconnectNow} style={btnStyle}>Reconnect</button>}
             {useSessionStream && <button className="ns-btn" type="button" onClick={clear} style={btnStyle}>Clear</button>}
-            <button className="ns-btn" type="button" onClick={onClose} style={btnStyle}>Close</button>
+            {onClose && <button className="ns-btn" type="button" onClick={onClose} style={btnStyle}>Close</button>}
           </div>
         </div>
 
@@ -415,6 +427,25 @@ export function IssueSseModal({ card, projectId, configPath, onClose }: Props) {
           )}
         </div>
       </section>
+  );
+}
+
+export function IssueSseModal({ card, projectId, configPath, onClose }: Props) {
+  if (!card) return null;
+
+  return (
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.38)", zIndex: 1200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+    >
+      <IssueSsePanel
+        card={card}
+        projectId={projectId}
+        configPath={configPath}
+        onClose={onClose}
+      />
     </div>
   );
 }

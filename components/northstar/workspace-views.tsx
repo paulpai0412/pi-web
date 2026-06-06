@@ -10,6 +10,7 @@ import { NorthstarBoard } from "./NorthstarBoard";
 
 export interface WorkspaceViewContext {
   activeCwd: string | null;
+  chatPanel?: ReactNode;
 }
 
 export interface WorkspaceView {
@@ -33,8 +34,8 @@ export const WORKSPACE_VIEWS: WorkspaceView[] = [
     id: "northstar",
     label: "Northstar",
     icon: northstarIcon,
-    render: ({ activeCwd }) => (
-      <NorthstarBoard configPath={activeCwd ? `${activeCwd}/.northstar.yaml` : null} />
+    render: ({ activeCwd, chatPanel }) => (
+      <NorthstarBoard configPath={activeCwd ? `${activeCwd}/.northstar.yaml` : null} chatPanel={chatPanel} />
     ),
   },
 ];

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import type {
   NorthstarBoard as NorthstarBoardModel,
@@ -10,7 +10,7 @@ import type {
 } from "@/lib/northstar/types";
 
 import { IssueDrawer } from "./IssueDrawer";
-import { IssueSseModal } from "./IssueSseModal";
+import { IssueSseModal, IssueSsePanel } from "./IssueSseModal";
 import { WatchSsePanel } from "./WatchSsePanel";
 
 const LIFECYCLE_ORDER: NorthstarLifecycleState[] = [
@@ -176,11 +176,12 @@ function IssueIcon() {
 interface CardProps {
   card: NorthstarBoardCard;
   repo: string;
+  selected: boolean;
   onClick: () => void;
   onOpenSse: () => void;
 }
 
-function BoardCard({ card, repo, onClick, onOpenSse }: CardProps) {
+function BoardCard({ card, repo, selected, onClick, onOpenSse }: CardProps) {
   const problem = isProblem(card);
   const issueLabel = card.issueNumber ? `#${card.issueNumber}` : card.issueId;
   const issueUrl = card.issueNumber ? `https://github.com/${repo}/issues/${card.issueNumber}` : null;
@@ -190,8 +191,8 @@ function BoardCard({ card, repo, onClick, onOpenSse }: CardProps) {
       className="ns-surface-interactive"
       onClick={onClick}
       style={{
-        border: "1px solid var(--border)",
-        borderRadius: 6, background: "var(--bg)", color: "var(--text)",
+        border: selected ? "1px solid var(--accent)" : "1px solid var(--border)",
+        borderRadius: 6, background: selected ? "var(--bg-selected)" : "var(--bg)", color: "var(--text)",
         padding: 10, minWidth: 0, boxSizing: "border-box", cursor: "pointer",
         transition: "background 140ms ease, border-color 140ms ease",
       }}
@@ -288,9 +289,10 @@ interface ColumnProps {
   initiallyCollapsed: boolean;
   onCardClick: (card: NorthstarBoardCard) => void;
   onOpenSse: (card: NorthstarBoardCard) => void;
+  selectedIssueId: string | null;
 }
 
-function Column({ lifecycle, cards, repo, initiallyCollapsed, onCardClick, onOpenSse }: ColumnProps) {
+function Column({ lifecycle, cards, repo, initiallyCollapsed, onCardClick, onOpenSse, selectedIssueId }: ColumnProps) {
   const [collapsed, setCollapsed] = useState(initiallyCollapsed);
   useEffect(() => {
     if (!initiallyCollapsed) setCollapsed(false);
@@ -332,6 +334,7 @@ function Column({ lifecycle, cards, repo, initiallyCollapsed, onCardClick, onOpe
               key={card.issueId}
               card={card}
               repo={repo}
+              selected={card.issueId === selectedIssueId}
               onClick={() => onCardClick(card)}
               onOpenSse={() => onOpenSse(card)}
             />
@@ -342,18 +345,21 @@ function Column({ lifecycle, cards, repo, initiallyCollapsed, onCardClick, onOpe
   );
 }
 
-export function NorthstarBoard({ configPath }: { configPath: string | null }) {
+type ContextTab = "chat" | "issue" | "watch";
+
+export function NorthstarBoard({ configPath, chatPanel }: { configPath: string | null; chatPanel?: ReactNode }) {
   const [board, setBoard] = useState<NorthstarBoardModel | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeCard, setActiveCard] = useState<NorthstarBoardCard | null>(null);
+  const [drawerCard, setDrawerCard] = useState<NorthstarBoardCard | null>(null);
+  const [selectedCard, setSelectedCard] = useState<NorthstarBoardCard | null>(null);
+  const [contextTab, setContextTab] = useState<ContextTab>("chat");
 
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
   const [watchSessionId, setWatchSessionId] = useState<string | null>(null);
   const [watchActive, setWatchActive] = useState(false);
   const [watchBusy, setWatchBusy] = useState(false);
   const [watchError, setWatchError] = useState<string | null>(null);
-  const [watchPanelOpen, setWatchPanelOpen] = useState(false);
   const [watchPanelHeight, setWatchPanelHeight] = useState(220);
   const [watchPrompt, setWatchPrompt] = useState(DEFAULT_WATCH_PROMPT);
   const [watchPromptDraft, setWatchPromptDraft] = useState(DEFAULT_WATCH_PROMPT);
@@ -419,7 +425,7 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
       });
       setWatchSessionId(payload.sessionId);
       setWatchActive(true);
-      setWatchPanelOpen(true);
+      setContextTab("watch");
     } catch (e) {
       setWatchError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -480,6 +486,16 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
 
   const pendingCount = useMemo(() => (board ? countPending(board) : 0), [board]);
 
+  const handleSelectCard = useCallback((card: NorthstarBoardCard) => {
+    setSelectedCard(card);
+    setContextTab("issue");
+  }, []);
+
+  const handleOpenSse = useCallback((card: NorthstarBoardCard) => {
+    setSelectedCard(card);
+    setSseModalCard(card);
+  }, []);
+
   useEffect(() => {
     if (!watchActive || !watchSessionId || watchBusy) return;
     if (pendingCount !== 0) return;
@@ -531,26 +547,10 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
             </span>
             <span style={{ fontSize: 11, color: "var(--text-dim)" }}>pending: {pendingCount}</span>
           </div>
-          {watchError && <div style={{ marginTop: 6, fontSize: 11, color: "#ef4444" }}>{watchError}</div>}
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
           <button className="ns-btn" type="button" title="Refresh" aria-label="Refresh" onClick={() => void load(configPath)} style={headerIconButtonStyle}><RefreshIcon /></button>
-          {!watchActive ? (
-            <button className="ns-btn" type="button" title="Start watch" aria-label="Start watch" onClick={() => void startWatch()} disabled={watchBusy} style={{ ...headerIconButtonStyle, opacity: watchBusy ? 0.6 : 1 }}>
-              <StartIcon />
-            </button>
-          ) : (
-            <button className="ns-btn" type="button" title="Stop watch" aria-label="Stop watch" onClick={() => void stopWatch("manual")} disabled={watchBusy || !watchSessionId} style={{ ...headerIconButtonStyle, opacity: watchBusy ? 0.6 : 1 }}>
-              <StopIcon />
-            </button>
-          )}
-          <button className="ns-btn" type="button" title="Edit monitor prompt" aria-label="Edit monitor prompt" onClick={openWatchPromptEditor} style={headerIconButtonStyle}>
-            <EditIcon />
-          </button>
-          <button className="ns-btn" type="button" title={watchPanelOpen ? "Hide SSE" : "Show SSE"} aria-label={watchPanelOpen ? "Hide SSE" : "Show SSE"} onClick={() => setWatchPanelOpen((v) => !v)} style={headerIconButtonStyle}>
-            <StreamIcon />
-          </button>
         </div>
       </div>
 
@@ -609,42 +609,146 @@ export function NorthstarBoard({ configPath }: { configPath: string | null }) {
         </div>
       )}
 
-      <div style={{ flex: 1, overflow: "auto", padding: 12, display: "flex", gap: 10, alignItems: "flex-start" }}>
-        {LIFECYCLE_ORDER.filter((lifecycle) => (cardsByLifecycle.get(lifecycle) ?? []).length > 0).map((lifecycle) => {
-          const cards = cardsByLifecycle.get(lifecycle) ?? [];
-          return (
-            <Column
-              key={lifecycle}
-              lifecycle={lifecycle}
-              cards={cards}
-              repo={board.project.repo}
-              initiallyCollapsed={false}
-              onCardClick={setActiveCard}
-              onOpenSse={setSseModalCard}
-            />
-          );
-        })}
-        {LIFECYCLE_ORDER.every((lifecycle) => (cardsByLifecycle.get(lifecycle) ?? []).length === 0) && (
-          <div style={{ fontSize: 12, color: "var(--text-dim)", padding: 6 }}>No issues on the board.</div>
-        )}
+      <div className="northstar-workbench-main" style={{ flex: 1, minHeight: 0, overflow: "hidden", display: "flex" }}>
+        <div style={{ flex: 1, minWidth: 0, overflow: "auto", padding: 12, display: "flex", gap: 10, alignItems: "flex-start" }}>
+          {LIFECYCLE_ORDER.filter((lifecycle) => (cardsByLifecycle.get(lifecycle) ?? []).length > 0).map((lifecycle) => {
+            const cards = cardsByLifecycle.get(lifecycle) ?? [];
+            return (
+              <Column
+                key={lifecycle}
+                lifecycle={lifecycle}
+                cards={cards}
+                repo={board.project.repo}
+                initiallyCollapsed={false}
+                onCardClick={handleSelectCard}
+                onOpenSse={handleOpenSse}
+                selectedIssueId={selectedCard?.issueId ?? null}
+              />
+            );
+          })}
+          {LIFECYCLE_ORDER.every((lifecycle) => (cardsByLifecycle.get(lifecycle) ?? []).length === 0) && (
+            <div style={{ fontSize: 12, color: "var(--text-dim)", padding: 6 }}>No issues on the board.</div>
+          )}
+        </div>
+
+        <aside className="northstar-context-panel" style={{ width: 430, minWidth: 360, maxWidth: "42vw", borderLeft: "1px solid var(--border)", background: "var(--bg)", display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <section style={{ padding: "10px 12px", borderBottom: "1px solid var(--border)", background: "var(--bg-panel)", flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>Project Controls</div>
+                <div style={{ marginTop: 2, fontSize: 11, color: watchActive ? "#16a34a" : "var(--text-dim)" }}>
+                  watch: {watchActive ? "running" : "stopped"} · pending: {pendingCount}
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                {!watchActive ? (
+                  <button className="ns-btn" type="button" title="Start watch" aria-label="Start watch" onClick={() => void startWatch()} disabled={watchBusy} style={{ ...headerIconButtonStyle, opacity: watchBusy ? 0.6 : 1 }}>
+                    <StartIcon />
+                  </button>
+                ) : (
+                  <button className="ns-btn" type="button" title="Stop watch" aria-label="Stop watch" onClick={() => void stopWatch("manual")} disabled={watchBusy || !watchSessionId} style={{ ...headerIconButtonStyle, opacity: watchBusy ? 0.6 : 1 }}>
+                    <StopIcon />
+                  </button>
+                )}
+                <button className="ns-btn" type="button" title="Edit monitor prompt" aria-label="Edit monitor prompt" onClick={openWatchPromptEditor} style={headerIconButtonStyle}>
+                  <EditIcon />
+                </button>
+                <button className="ns-btn" type="button" title="Watch stream" aria-label="Watch stream" onClick={() => setContextTab("watch")} style={{ ...headerIconButtonStyle, color: contextTab === "watch" ? "var(--accent)" : "var(--text)" }}>
+                  <StreamIcon />
+                </button>
+              </div>
+            </div>
+            {watchError && <div style={{ marginTop: 6, fontSize: 11, color: "#ef4444" }}>{watchError}</div>}
+          </section>
+
+          <div style={{ display: "flex", alignItems: "stretch", height: 34, borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+            {([
+              { id: "chat", label: "Chat", disabled: false },
+              { id: "issue", label: selectedCard?.issueNumber ? `Issue #${selectedCard.issueNumber}` : "Issue", disabled: false },
+              { id: "watch", label: "Watch", disabled: false },
+            ] as { id: ContextTab; label: string; disabled: boolean }[]).map((tab) => {
+              const active = contextTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  className="ns-btn"
+                  type="button"
+                  onClick={() => setContextTab(tab.id)}
+                  disabled={tab.disabled}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    border: "none",
+                    borderRight: "1px solid var(--border)",
+                    borderTop: active ? "2px solid var(--accent)" : "2px solid transparent",
+                    background: active ? "var(--bg-selected)" : "var(--bg-panel)",
+                    color: active ? "var(--text)" : "var(--text-muted)",
+                    fontSize: 11,
+                    cursor: tab.disabled ? "default" : "pointer",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+            {contextTab === "chat" ? (
+              chatPanel ?? (
+                <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
+                  Chat is unavailable for this workspace.
+                </div>
+              )
+            ) : contextTab === "issue" ? (
+              <div style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
+                {selectedCard && (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 12px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {selectedCard.title}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                        stage: {selectedCard.currentStage ?? "none"} · host: {selectedCard.latestHostAdapter ?? "unknown"}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                      <button className="ns-btn" type="button" onClick={() => setDrawerCard(selectedCard)} style={btnLikeStyle}>Details</button>
+                      <button className="ns-btn" type="button" onClick={() => setSseModalCard(selectedCard)} style={btnLikeStyle}>Pop out</button>
+                    </div>
+                  </div>
+                )}
+                <div style={{ flex: 1, minHeight: 0 }}>
+                  <IssueSsePanel
+                    card={selectedCard}
+                    projectId={board.project.projectId}
+                    configPath={configPath}
+                    embedded
+                  />
+                </div>
+              </div>
+            ) : (
+              <WatchSsePanel
+                sessionId={watchSessionId}
+                height={watchPanelHeight}
+                onHeightChange={setWatchPanelHeight}
+                onSessionEnded={() => setWatchActive(false)}
+                embedded
+              />
+            )}
+          </div>
+        </aside>
       </div>
 
-      {watchPanelOpen && (
-        <WatchSsePanel
-          sessionId={watchSessionId}
-          height={watchPanelHeight}
-          onHeightChange={setWatchPanelHeight}
-          onClose={() => setWatchPanelOpen(false)}
-          onSessionEnded={() => setWatchActive(false)}
-        />
-      )}
-
-      {activeCard && (
+      {drawerCard && (
         <IssueDrawer
-          card={activeCard}
+          card={drawerCard}
           projectId={board.project.projectId}
           configPath={configPath}
-          onClose={() => setActiveCard(null)}
+          onClose={() => setDrawerCard(null)}
         />
       )}
 

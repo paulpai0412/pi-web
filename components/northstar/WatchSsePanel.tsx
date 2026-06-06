@@ -13,8 +13,9 @@ interface Props {
   title?: string;
   height: number;
   onHeightChange: (nextHeight: number) => void;
-  onClose: () => void;
+  onClose?: () => void;
   onSessionEnded?: () => void;
+  embedded?: boolean;
 }
 
 function buildToolResultsMap(messages: AgentMessage[]): Map<string, ToolResultMessage> {
@@ -34,6 +35,7 @@ export function WatchSsePanel({
   onHeightChange,
   onClose,
   onSessionEnded,
+  embedded = false,
 }: Props) {
   const { messages, streamingMessage, isLive, isReconnecting, reconnectAttempts, reconnectNow, clear, ended } = usePiSessionSse(sessionId);
 
@@ -70,12 +72,14 @@ export function WatchSsePanel({
   }, [height, onHeightChange]);
 
   return (
-    <section style={{ borderTop: "1px solid var(--border)", background: "var(--bg)", height, display: "flex", flexDirection: "column", minHeight: 0 }}>
-      <div
-        onMouseDown={startResize}
-        title="Drag to resize"
-        style={{ height: 8, cursor: "row-resize", borderBottom: "1px solid var(--border)", background: "var(--bg-panel)", flexShrink: 0, transition: "background 140ms ease" }}
-      />
+    <section style={{ borderTop: embedded ? "none" : "1px solid var(--border)", background: "var(--bg)", height: embedded ? "100%" : height, display: "flex", flexDirection: "column", minHeight: 0 }}>
+      {!embedded && (
+        <div
+          onMouseDown={startResize}
+          title="Drag to resize"
+          style={{ height: 8, cursor: "row-resize", borderBottom: "1px solid var(--border)", background: "var(--bg-panel)", flexShrink: 0, transition: "background 140ms ease" }}
+        />
+      )}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "8px 12px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", whiteSpace: "nowrap" }}>{title}</span>
@@ -92,7 +96,7 @@ export function WatchSsePanel({
             <button className="ns-btn" type="button" onClick={reconnectNow} style={btnStyle}>Reconnect</button>
           )}
           <button className="ns-btn" type="button" onClick={clear} style={btnStyle}>Clear</button>
-          <button className="ns-btn" type="button" onClick={onClose} style={btnStyle}>Close</button>
+          {onClose && <button className="ns-btn" type="button" onClick={onClose} style={btnStyle}>Close</button>}
         </div>
       </div>
 
