@@ -39,6 +39,7 @@ export interface NorthstarProjectSummary {
   configPath: string;
   runtimeDbPath: string;
   capabilities: NorthstarProjectCapabilities;
+  telemetry?: NorthstarProjectTelemetry;
 }
 
 export interface NorthstarBoard {
@@ -70,6 +71,40 @@ export interface NorthstarBoardCard {
   lastHeartbeatAt: string | null;
   nextRecommendedAction: string;
   projectionFailure: boolean;
+  telemetry?: NorthstarIssueTelemetry;
+}
+
+export interface NorthstarTokenUsageSummary {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  total: number;
+}
+
+export interface NorthstarCostSummary {
+  estimatedUsd: number;
+  known: boolean;
+}
+
+export interface NorthstarIssueTelemetry {
+  durationMs: number;
+  errorCount: number;
+  tokenUsage: NorthstarTokenUsageSummary;
+  cost: NorthstarCostSummary;
+  sessionCount: number;
+  knownTokenSessionCount: number;
+  knownCostSessionCount: number;
+}
+
+export interface NorthstarProjectTelemetry extends NorthstarIssueTelemetry {
+  completion: {
+    completed: number;
+    total: number;
+    percent: number;
+  };
+  activeCount: number;
+  attentionCount: number;
 }
 
 export interface NorthstarRunEvent {

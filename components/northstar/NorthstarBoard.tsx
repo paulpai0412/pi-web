@@ -102,6 +102,44 @@ function countPending(board: NorthstarBoardModel): number {
   return PENDING_STATES.reduce((sum, state) => sum + (map.get(state) ?? 0), 0);
 }
 
+function compactNumber(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "0";
+  if (value >= 1_000_000) return `${trimNumber(value / 1_000_000)}M`;
+  if (value >= 1_000) return `${trimNumber(value / 1_000)}k`;
+  return String(Math.round(value));
+}
+
+function trimNumber(value: number): string {
+  return value >= 10 ? value.toFixed(0) : value.toFixed(1).replace(/\.0$/, "");
+}
+
+function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return "0m";
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest > 0 ? `${hours}h${rest}m` : `${hours}h`;
+}
+
+function formatCost(value: number | undefined): string {
+  const amount = typeof value === "number" && Number.isFinite(value) ? value : 0;
+  if (amount <= 0) return "-";
+  return amount >= 0.01 ? `$${amount.toFixed(2)}` : "<$0.01";
+}
+
+function telemetryTitle(card: NorthstarBoardCard): string {
+  const telemetry = card.telemetry;
+  if (!telemetry) return "No telemetry recorded";
+  return [
+    `duration: ${formatDuration(telemetry.durationMs)}`,
+    `errors: ${telemetry.errorCount}`,
+    `tokens: ${telemetry.tokenUsage.total.toLocaleString()}`,
+    `cost: ${telemetry.cost.known ? `$${telemetry.cost.estimatedUsd.toFixed(4)}` : "unknown"}`,
+    `sessions: ${telemetry.knownTokenSessionCount}/${telemetry.sessionCount} with token usage`,
+  ].join("\n");
+}
+
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
@@ -195,6 +233,7 @@ function BoardCard({ card, repo, selected, onClick, onOpenSse }: CardProps) {
   const problem = isProblem(card);
   const issueLabel = card.issueNumber ? `#${card.issueNumber}` : card.issueId;
   const issueUrl = card.issueNumber ? `https://github.com/${repo}/issues/${card.issueNumber}` : null;
+  const telemetry = card.telemetry;
 
   return (
     <article
@@ -219,6 +258,13 @@ function BoardCard({ card, repo, selected, onClick, onOpenSse }: CardProps) {
         <span style={{ border: "1px solid var(--border)", borderRadius: 3, padding: "1px 5px" }}>{card.currentStage ?? "no stage"}</span>
         {card.latestHostAdapter && <span style={{ border: "1px solid var(--border)", borderRadius: 3, padding: "1px 5px" }}>host: {card.latestHostAdapter}</span>}
         <span style={{ border: "1px solid var(--border)", borderRadius: 3, padding: "1px 5px" }}>deps {card.dependencyCount}</span>
+        {telemetry && (
+          <>
+            <span title={telemetryTitle(card)} style={{ border: "1px solid var(--border)", borderRadius: 3, padding: "1px 5px" }}>{formatDuration(telemetry.durationMs)}</span>
+            <span title={telemetryTitle(card)} style={{ border: "1px solid var(--border)", borderRadius: 3, padding: "1px 5px", color: telemetry.errorCount > 0 ? "#ef4444" : "var(--text-muted)" }}>!{telemetry.errorCount}</span>
+            <span title={telemetryTitle(card)} style={{ border: "1px solid var(--border)", borderRadius: 3, padding: "1px 5px" }}>{compactNumber(telemetry.tokenUsage.total)} tok</span>
+          </>
+        )}
       </div>
       <div style={{ marginTop: 5, fontSize: 11, color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         next: {card.nextRecommendedAction}
@@ -655,13 +701,14 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
   const runBlockedReason = commandIsWatch && watchRunning
     ? `watch already running${watchPid ? ` pid=${watchPid}` : ""}`
     : "";
+  const projectTelemetry = board.project.telemetry;
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", minWidth: 0, position: "relative" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 12px", borderBottom: "1px solid var(--border)", background: "var(--bg)", flexShrink: 0, minWidth: 0 }}>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontSize: 14, fontWeight: 650, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{board.project.name}</div>
-          <div style={{ display: "flex", gap: 10, marginTop: 1, color: "var(--text-muted)", fontSize: 11 }}>
+          <div style={{ display: "flex", gap: "3px 10px", flexWrap: "wrap", marginTop: 1, color: "var(--text-muted)", fontSize: 11 }}>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{board.project.repo}</span>
             <span style={{ flexShrink: 0 }}>host: {board.project.hostAdapter}</span>
             <span style={{ fontSize: 11, color: shellRunning ? "#16a34a" : "var(--text-dim)" }}>
@@ -671,6 +718,19 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
               watch: {watchRunning ? `pid ${watchPid ?? "?"}` : "stopped"}
             </span>
             <span style={{ fontSize: 11, color: "var(--text-dim)" }}>pending: {pendingCount}</span>
+            {projectTelemetry && (
+              <>
+                <span style={{ color: "var(--text-dim)" }}>done {projectTelemetry.completion.completed}/{projectTelemetry.completion.total} {projectTelemetry.completion.percent}%</span>
+                <span style={{ color: "var(--text-dim)" }}>active {projectTelemetry.activeCount}</span>
+                <span style={{ color: projectTelemetry.attentionCount > 0 ? "#d97706" : "var(--text-dim)" }}>attention {projectTelemetry.attentionCount}</span>
+                <span style={{ color: projectTelemetry.errorCount > 0 ? "#ef4444" : "var(--text-dim)" }}>errors {projectTelemetry.errorCount}</span>
+                <span style={{ color: "var(--text-dim)" }}>time {formatDuration(projectTelemetry.durationMs)}</span>
+                <span style={{ color: "var(--text-dim)" }} title={`${projectTelemetry.knownTokenSessionCount}/${projectTelemetry.sessionCount} sessions with known token usage`}>
+                  tokens {compactNumber(projectTelemetry.tokenUsage.total)}
+                </span>
+                <span style={{ color: "var(--text-dim)" }}>cost {formatCost(projectTelemetry.cost.known ? projectTelemetry.cost.estimatedUsd : undefined)}</span>
+              </>
+            )}
           </div>
         </div>
 
