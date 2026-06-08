@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 
 import type {
   NorthstarBoard as NorthstarBoardModel,
@@ -175,7 +175,24 @@ const centeredStyle: React.CSSProperties = {
 const contextPanelTop = 92;
 const contextPanelRight = 18;
 const contextPanelWidth = 440;
+const contextPanelHeight = 680;
+const contextPanelMinWidth = 320;
+const contextPanelMinHeight = 280;
 const contextPanelBottomGap = 20;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function maxContextPanelWidth(): number {
+  if (typeof window === "undefined") return contextPanelWidth;
+  return Math.max(contextPanelMinWidth, window.innerWidth - contextPanelRight * 2);
+}
+
+function maxContextPanelHeight(): number {
+  if (typeof window === "undefined") return contextPanelHeight;
+  return Math.max(contextPanelMinHeight, window.innerHeight - (contextPanelTop + contextPanelBottomGap));
+}
 
 const iconStroke: React.CSSProperties = { width: 14, height: 14, display: "block" };
 
@@ -410,6 +427,8 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
   const [selectedCard, setSelectedCard] = useState<NorthstarBoardCard | null>(null);
   const [contextTab, setContextTab] = useState<ContextTab>("chat");
   const [contextPanelOpen, setContextPanelOpen] = useState(false);
+  const [contextPanelWidthPx, setContextPanelWidthPx] = useState(() => clamp(contextPanelWidth, contextPanelMinWidth, maxContextPanelWidth()));
+  const [contextPanelHeightPx, setContextPanelHeightPx] = useState(() => clamp(contextPanelHeight, contextPanelMinHeight, maxContextPanelHeight()));
 
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
   const [shellCommand, setShellCommand] = useState("");
@@ -674,6 +693,49 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
     node.scrollTop = node.scrollHeight;
   }, [shellOutput]);
 
+  useEffect(() => {
+    const syncContextPanelBounds = () => {
+      const maxWidth = maxContextPanelWidth();
+      const maxHeight = maxContextPanelHeight();
+      setContextPanelWidthPx((prev) => clamp(prev, contextPanelMinWidth, maxWidth));
+      setContextPanelHeightPx((prev) => clamp(prev, contextPanelMinHeight, maxHeight));
+    };
+
+    syncContextPanelBounds();
+    window.addEventListener("resize", syncContextPanelBounds);
+    return () => window.removeEventListener("resize", syncContextPanelBounds);
+  }, []);
+
+  const startContextPanelResize = useCallback((event: ReactMouseEvent<HTMLDivElement>, mode: "width" | "height" | "both") => {
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startWidth = contextPanelWidthPx;
+    const startHeight = contextPanelHeightPx;
+
+    const onMove = (moveEvent: MouseEvent) => {
+      const maxWidth = maxContextPanelWidth();
+      const maxHeight = maxContextPanelHeight();
+      if (mode === "width" || mode === "both") {
+        const widthDelta = startX - moveEvent.clientX;
+        setContextPanelWidthPx(clamp(startWidth + widthDelta, contextPanelMinWidth, maxWidth));
+      }
+      if (mode === "height" || mode === "both") {
+        const heightDelta = moveEvent.clientY - startY;
+        setContextPanelHeightPx(clamp(startHeight + heightDelta, contextPanelMinHeight, maxHeight));
+      }
+    };
+
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [contextPanelHeightPx, contextPanelWidthPx]);
+
   if (!configPath) return <div style={centeredStyle}>Select a project directory with a <code>.northstar.yaml</code> file.</div>;
   if (loading && !board) return <div style={centeredStyle}>Loading Northstar board…</div>;
   if (error) return (
@@ -822,9 +884,9 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
               top: contextPanelTop,
               right: contextPanelRight,
               zIndex: 950,
-              width: `min(${contextPanelWidth}px, calc(100% - ${contextPanelRight * 2}px))`,
-              height: `calc(100vh - ${contextPanelTop + contextPanelBottomGap}px)`,
-              maxWidth: `min(${contextPanelWidth}px, calc(100% - ${contextPanelRight * 2}px))`,
+              width: contextPanelWidthPx,
+              height: contextPanelHeightPx,
+              maxWidth: `calc(100% - ${contextPanelRight * 2}px)`,
               maxHeight: `calc(100vh - ${contextPanelTop + contextPanelBottomGap}px)`,
               minWidth: 0,
               border: "1px solid var(--border)",
@@ -905,18 +967,6 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
             </div>
             {contextTab === "issue" ? (
               <div style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
-                {selectedCard && (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 12px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {selectedCard.title}
-                      </div>
-                      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-                        stage: {selectedCard.currentStage ?? "none"} · host: {selectedCard.latestHostAdapter ?? "unknown"}
-                      </div>
-                    </div>
-                  </div>
-                )}
                 {selectedCard && (
                   <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
                     <IssueDrawer
@@ -1056,12 +1106,28 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
                     fontFamily: "var(--font-mono)",
                     fontSize: 11,
                     lineHeight: 1.5,
-                    whiteSpace: "pre-wrap",
+                    whiteSpace: "pre",
                   }}
                 >{shellOutput || "No command has run yet."}</pre>
               </div>
             ) : null}
           </div>
+
+          <div
+            onMouseDown={(event) => startContextPanelResize(event, "width")}
+            title="Drag to resize width"
+            style={{ position: "absolute", top: 34, bottom: 8, left: 0, width: 8, cursor: "ew-resize", zIndex: 2 }}
+          />
+          <div
+            onMouseDown={(event) => startContextPanelResize(event, "height")}
+            title="Drag to resize height"
+            style={{ position: "absolute", left: 8, right: 0, bottom: 0, height: 8, cursor: "ns-resize", zIndex: 2 }}
+          />
+          <div
+            onMouseDown={(event) => startContextPanelResize(event, "both")}
+            title="Drag to resize"
+            style={{ position: "absolute", left: 0, bottom: 0, width: 12, height: 12, cursor: "nesw-resize", zIndex: 3, background: "var(--bg-hover)", borderTopRightRadius: 5 }}
+          />
         </aside>
         )}
       </div>
