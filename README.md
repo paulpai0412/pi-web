@@ -54,6 +54,31 @@ npm install
 npm run dev   # 端口 3030
 ```
 
+## Northstar 整合安装包
+
+本仓库可以产出一个跨平台 npm 安装包，内嵌 `@northstar/runtime`，适合 Windows、
+macOS、Linux 使用：
+
+```bash
+npm run build
+npm run pack:suite
+```
+
+输出目录：`dist/northstar-suite/`
+
+- Windows: 在 PowerShell 执行 `install.ps1`
+- macOS / Linux: 执行 `./install.sh`
+
+此安装包会安装本地产出的 `northstar-runtime` 与 `pi-web` tgz；若 npm cache
+没有 Next/Pi 相关依赖，安装时仍需要网络。完全离线安装包需要另行产出 bundled
+dependency cache。
+
+安装后使用：
+
+```bash
+pi-web
+```
+
 ## 项目结构
 
 ```

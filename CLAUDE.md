@@ -67,11 +67,11 @@ Idle wrappers time out after 10 minutes.
 ## Northstar integration (`app/api/northstar/`, `lib/northstar/`)
 
 A newer, pluggable layer exposing an external "operator dashboard" API (projects / board / issues /
-wizard) under `/api/northstar/...`. `lib/northstar/server-client.ts` dynamically `import()`s a
-local-api module from `NORTHSTAR_ROOT` (config via `?config=` query param or `NORTHSTAR_CONFIG`),
-falling back to the bundled `lib/northstar/local-api-loader.js`. Treat the API surface
-(`NorthstarServerApi`) as the contract — keep `lib/northstar/types.ts` in sync with the upstream
-northstar extension.
+wizard) under `/api/northstar/...`. `lib/northstar/server-client.ts` resolves the project config
+from `?config=` or `NORTHSTAR_CONFIG`, then delegates to `lib/northstar/local-api-loader.js`.
+The loader imports the board-only API from `@northstar/runtime`; do not reintroduce sibling source
+imports like `../northstar/src`. Treat the API surface (`NorthstarServerApi`) as the contract —
+keep `lib/northstar/types.ts` in sync with the upstream northstar extension.
 
 ## Runtime data & config
 

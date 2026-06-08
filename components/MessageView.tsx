@@ -18,6 +18,7 @@ import type {
   ToolCallContent,
   ThinkingContent,
 } from "@/lib/types";
+import { formatAssistantError } from "@/lib/message-errors";
 
 interface Props {
   message: AgentMessage;
@@ -371,6 +372,7 @@ function AssistantMessageView({
 }) {
   const time = showTimestamp ? formatTime(message.timestamp) : null;
   const blocks = message.content ?? [];
+  const errorText = formatAssistantError(message);
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const streamStartRef = useRef<number | null>(null);
@@ -526,6 +528,7 @@ function AssistantMessageView({
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {errorText && <AssistantErrorBlock message={errorText} />}
         {blocks.map((block, i) => (
           <BlockView key={i} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(i) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} />
         ))}
@@ -576,6 +579,27 @@ function AssistantMessageView({
           <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: "auto" }}>{time}</span>
         )}
       </div>
+    </div>
+  );
+}
+
+function AssistantErrorBlock({ message }: { message: string }) {
+  return (
+    <div
+      role="alert"
+      style={{
+        border: "1px solid rgba(248,113,113,0.42)",
+        borderRadius: 7,
+        background: "rgba(248,113,113,0.07)",
+        color: "#f87171",
+        fontSize: 13,
+        lineHeight: 1.55,
+        padding: "8px 10px",
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-word",
+      }}
+    >
+      {message}
     </div>
   );
 }

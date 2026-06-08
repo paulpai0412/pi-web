@@ -13,7 +13,8 @@ integration can be re-applied after a pi-web upgrade with minimal effort.
   - `app/api/northstar/` — API routes
 
 - **Source of truth for board UI is `apps/pi-web/components/northstar/`**. `apps/northstar/integrations/pi-web/components/` is reference coverage for Northstar-side integration tests and must not be edited as the primary UI implementation.
-- **No new npm dependencies** — `package.json` / lockfile do not diverge.
+- **Northstar is a package dependency** — `package.json` depends on
+  `@northstar/runtime` instead of importing from a sibling source path.
 - The board talks only to the existing `/api/northstar/*` routes, which proxy to the
   real Northstar install. UI and data are decoupled.
 
@@ -30,26 +31,26 @@ re-apply these if upstream overwrote `AppShell.tsx`:
 
 1. **Imports** — `WorkspaceTabs` + `renderWorkspaceView` from `./northstar/...`.
 2. **`workspaceView` state** — typed `string` (registry-driven), initial `"chat"`.
-3. **Top bar** — render `<WorkspaceTabs active={workspaceView} onSelect={…} />`; gate the
-   pi-web Branches/System block and the session-stats block on
-   `workspaceView === "chat"` so chat-only controls hide in non-chat views.
+3. **Top bar** — render `<WorkspaceTabs active={workspaceView} onSelect={…} />`; keep
+   Chat-only controls inside `ChatWindow` so they do not sit beside workspace tabs.
 4. **Center content** — `workspaceView !== "chat" ? renderWorkspaceView(workspaceView, { activeCwd }) : <existing chat/placeholder logic>`.
 
-Nothing else in AppShell is removed — pi-web's `BranchNavigator`, System button, and
-`activeTopPanel` machinery are original pi-web features and stay intact.
+`BranchNavigator` is rendered by `ChatWindow` as a session-level control. The former
+top-bar System panel is intentionally not part of this Northstar-focused layout.
 
 ## Backend data source — board-only loader (important)
 
-`lib/northstar/local-api-loader.js` builds the board **directly** from Northstar's
-read-model + store, importing only:
+`lib/northstar/local-api-loader.js` delegates board reads to
+`@northstar/runtime/operator-dashboard/board-only-local-api`, which builds the board
+**directly** from Northstar's read-model + store. That package export imports only:
 
 - `src/config/load-config.ts`, `src/adapters/platform/paths.ts`
 - `src/runtime/store.ts` (`SqliteControlPlaneStore`, uses `node:sqlite`)
 - `src/operator-dashboard/read-model.ts` (`buildNorthstarBoard`)
 - `src/operator-dashboard/models.ts` (`defaultNorthstarProjectCapabilities`)
 
-Every file in that closure imports only relative paths and `node:` builtins, so
-webpack bundles it cleanly from the out-of-tree `apps/northstar` source.
+Every file in that closure imports only relative paths and `node:` builtins, so Next
+can transpile and bundle `@northstar/runtime` cleanly through `transpilePackages`.
 
 **Why not import Northstar's `local-api.ts`?** Its `getBoard()` is what we replicate,
 but the module also statically imports the production orchestrator chain
@@ -67,5 +68,23 @@ only ever needs `getBoard()` (a SQLite read), never the agent-runner the SDK is 
 
 `lib/northstar/server-client.ts` selects the **data** (which project / runtime DB) per
 request from `?config=<cwd>/.northstar.yaml` (or the `NORTHSTAR_CONFIG` env var). The
-Northstar **source** location is fixed by the relative import in `local-api-loader.js`
-(`../../../northstar/...`); if the install moves, update that one path.
+Northstar **code** location is now resolved by npm via `@northstar/runtime`, so the UI
+no longer depends on `pi-web` and `northstar` being sibling directories.
+
+## Cross-platform suite packaging
+
+`npm run pack:suite` creates `dist/northstar-suite/`, a cross-platform installer folder:
+
+- `packages/*.tgz` — a pi-web package with `@northstar/runtime` vendored as an internal tgz.
+- `install.ps1` — Windows PowerShell installer.
+- `install.sh` — macOS/Linux installer.
+- `README.md` — install instructions.
+
+The script is implemented in `scripts/build-northstar-suite.mjs` so the packaging logic is
+portable across Windows and Unix shells. It requires existing `.next` production artifacts;
+run `npm run build` first, or call the script with `--build`.
+
+The generated installer is cross-platform but not fully offline: npm still resolves normal
+package dependencies such as Next, React, and Pi SDK packages unless they are already cached.
+A fully offline installer should add a bundled npm cache or bundled dependencies as a separate
+packaging phase.
