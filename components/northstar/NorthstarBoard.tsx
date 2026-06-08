@@ -892,13 +892,18 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
           </div>
 
           <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-            {contextTab === "chat" ? (
-              chatPanel ?? (
+            <div
+              data-northstar-context-panel="chat"
+              aria-hidden={contextTab !== "chat"}
+              style={{ height: "100%", display: contextTab === "chat" ? "block" : "none" }}
+            >
+              {chatPanel ?? (
                 <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
                   Chat is unavailable for this workspace.
                 </div>
-              )
-            ) : contextTab === "issue" ? (
+              )}
+            </div>
+            {contextTab === "issue" ? (
               <div style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
                 {selectedCard && (
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 12px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
@@ -936,7 +941,7 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
                 configPath={configPath}
                 embedded
               />
-            ) : (
+            ) : contextTab === "watch" ? (
               <div style={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column" }}>
                 <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 12px", borderBottom: "1px solid var(--border)" }}>
                   <div style={{ minWidth: 0 }}>
@@ -1055,7 +1060,7 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
                   }}
                 >{shellOutput || "No command has run yet."}</pre>
               </div>
-            )}
+            ) : null}
           </div>
         </aside>
         )}
