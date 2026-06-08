@@ -924,7 +924,7 @@ function TextFileViewer({ filePath, cwd }: Props) {
             customStyle={{
               margin: 0,
               padding: "12px 0",
-              background: "var(--bg)",
+              backgroundColor: "var(--bg)",
               fontSize: 13,
               lineHeight: 1.6,
               fontFamily: "var(--font-mono)",
