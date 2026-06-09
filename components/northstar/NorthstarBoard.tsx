@@ -163,6 +163,16 @@ function shellCommandStorageKey(configPath: string): string {
   return `northstar.shellCommand:${configPath}`;
 }
 
+function shellOutputStorageKey(configPath: string): string {
+  return `northstar.shellOutput:${configPath}`;
+}
+
+function trimShellOutput(value: string): string {
+  const maxChars = 120_000;
+  if (value.length <= maxChars) return value;
+  return `...[truncated ${value.length - maxChars} chars]\n${value.slice(-maxChars)}`;
+}
+
 function isWatchCommand(command: string): boolean {
   return /(?:^|\s)watch(?:\s|$)/.test(command);
 }
@@ -440,8 +450,10 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
   const [watchStatus, setWatchStatus] = useState<WatchStatus | null>(null);
   const [watchStatusError, setWatchStatusError] = useState<string | null>(null);
   const [watchStopping, setWatchStopping] = useState(false);
+  const [watchAttached, setWatchAttached] = useState<{ pid: number | string; at: number } | null>(null);
   const shellAbortRef = useRef<AbortController | null>(null);
   const shellOutputRef = useRef<HTMLPreElement | null>(null);
+  const watchRunningRef = useRef(false);
 
   const load = useCallback(async (cfg: string | null) => {
     if (!cfg) { setBoard(null); setError(null); return; }
@@ -464,6 +476,8 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
 
   const refreshWatchStatus = useCallback(async () => {
     if (!configPath) {
+      watchRunningRef.current = false;
+      setWatchAttached(null);
       setWatchStatus(null);
       setWatchStatusError(null);
       return null;
@@ -472,13 +486,32 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
       const status = await readJson<WatchStatus>(`/api/northstar/shell?config=${encodeURIComponent(configPath)}`);
       setWatchStatus(status);
       setWatchStatusError(null);
+
+      const becameRunning = status.running && !watchRunningRef.current;
+      watchRunningRef.current = status.running;
+      if (!status.running) setWatchAttached(null);
+
+      if (becameRunning && !shellRunning) {
+        const owner = status.processes.find((proc) => proc.lockOwner) ?? status.processes[0];
+        const pid = owner?.pid ?? status.lock?.pid ?? "?";
+        const cmd = owner?.command ?? "northstar watch";
+        setWatchAttached({ pid, at: Date.now() });
+        setContextTab("watch");
+        setContextPanelOpen(true);
+        setShellOutput((prev) => {
+          const line = `[attached] detected running watch process pid=${pid}\n[command] ${cmd}\n`;
+          if (prev.includes(line.trim())) return prev;
+          return `${prev}${prev.endsWith("\n") || !prev ? "" : "\n"}${line}`;
+        });
+      }
+
       return status;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setWatchStatusError(message);
       return null;
     }
-  }, [configPath]);
+  }, [configPath, shellRunning]);
 
   const killWatchProcess = useCallback(async (force: boolean) => {
     if (!configPath || watchStopping) return;
@@ -548,6 +581,7 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
 
     const controller = new AbortController();
     shellAbortRef.current = controller;
+    setWatchAttached(null);
     setShellRunning(true);
     setShellError(null);
     setShellExit(null);
@@ -618,6 +652,8 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
 
   useEffect(() => {
     if (!configPath) {
+      watchRunningRef.current = false;
+      setWatchAttached(null);
       setShellCommand("");
       setShellCommandSaved(false);
       setShellOutput("");
@@ -641,9 +677,16 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
       setShellCommand(fallback);
       setShellCommandSaved(false);
     }
-    setShellOutput("");
+
+    try {
+      setShellOutput(window.localStorage.getItem(shellOutputStorageKey(configPath)) ?? "");
+    } catch {
+      setShellOutput("");
+    }
+
     setShellError(null);
     setShellExit(null);
+    setWatchAttached(null);
     void refreshWatchStatus();
   }, [configPath, refreshWatchStatus]);
 
@@ -692,6 +735,15 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
     if (!node) return;
     node.scrollTop = node.scrollHeight;
   }, [shellOutput]);
+
+  useEffect(() => {
+    if (!configPath) return;
+    try {
+      window.localStorage.setItem(shellOutputStorageKey(configPath), trimShellOutput(shellOutput));
+    } catch {
+      // ignore quota/private-mode errors
+    }
+  }, [configPath, shellOutput]);
 
   useEffect(() => {
     const syncContextPanelBounds = () => {
@@ -997,6 +1049,7 @@ export function NorthstarBoard({ configPath, chatPanel }: { configPath: string |
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 11, color: watchRunning ? "#16a34a" : shellRunning ? "#d97706" : "var(--text-dim)" }}>
                       {watchRunning ? `watch pid ${watchPid ?? "?"}` : shellRunning ? "shell running" : shellCommandSaved ? "command saved" : "idle"}
+                      {watchAttached && watchRunning ? ` · attached` : ""}
                       {watchStatus?.heartbeatAgeSeconds !== null && watchStatus?.heartbeatAgeSeconds !== undefined ? ` · heartbeat ${watchStatus.heartbeatAgeSeconds}s` : ""}
                       {shellExit ? ` · last exit ${shellExit.code ?? "null"}` : ""}
                     </div>
