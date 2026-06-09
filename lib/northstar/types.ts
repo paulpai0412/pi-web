@@ -135,6 +135,15 @@ export interface NorthstarAcceptedArtifact {
   summary: string;
 }
 
+export type NorthstarOperatorActionName = "intake" | "start" | "reconcile" | "release" | "repair-runtime" | "retry-sync" | "resume" | "quarantine" | "inspect";
+
+export interface NorthstarOperatorActionDescriptor {
+  action: NorthstarOperatorActionName;
+  label: string;
+  requiresConfirmation: boolean;
+  style: "default" | "primary" | "danger";
+}
+
 export interface NorthstarIssueDetail {
   snapshot: JsonObject;
   title: string;
@@ -144,6 +153,7 @@ export interface NorthstarIssueDetail {
   timeline: NorthstarRunEvent[];
   sessionLinks: NorthstarSessionLink[];
   acceptedArtifacts: NorthstarAcceptedArtifact[];
+  availableActions?: NorthstarOperatorActionDescriptor[];
 }
 
 export interface NorthstarWizardState {

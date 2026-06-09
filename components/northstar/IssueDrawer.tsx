@@ -10,8 +10,11 @@ import type {
 
 interface Action {
   label: string;
-  command: "start" | "reconcile" | "release" | "repair-runtime" | "retry-sync" | "resume";
+  command: "start" | "reconcile" | "release" | "repair-runtime" | "retry-sync" | "resume" | "quarantine";
   targetLifecycle?: "ready" | "running";
+  requiresConfirmation?: boolean;
+  reasonPrompt?: string;
+  reasonDefault?: string;
 }
 
 function actionsForCard(card: NorthstarBoardCard): Action[] {
@@ -27,10 +30,22 @@ function actionsForCard(card: NorthstarBoardCard): Action[] {
   else if (lc === "failed") actions.push({ label: "Reconcile", command: "reconcile" });
   else if (lc === "quarantined") {
     actions.push({ label: "Repair runtime", command: "repair-runtime" });
-    actions.push({ label: "Resume", command: "resume", targetLifecycle: "ready" });
+    actions.push({ label: "Resume", command: "resume", targetLifecycle: "ready", reasonPrompt: "Resume reason (required)", reasonDefault: "runtime fix deployed" });
   }
-  if (card.blocked || card.projectionFailure)
+
+  if (lc !== "quarantined") {
+    actions.push({
+      label: "Pause Issue",
+      command: "quarantine",
+      requiresConfirmation: true,
+      reasonPrompt: "Pause reason (required)",
+      reasonDefault: "operator pause",
+    });
+  }
+
+  if (card.blocked || card.projectionFailure) {
     actions.push({ label: "Retry sync", command: "retry-sync" });
+  }
   return actions;
 }
 
@@ -278,13 +293,22 @@ export function IssueDrawer({ card, projectId, configPath, onClose, embedded = f
         config: configPath,
       });
 
+      if (action.requiresConfirmation) {
+        const confirmed = window.confirm(`Confirm ${action.label}?`);
+        if (!confirmed) return;
+      }
+
       if (action.command === "resume") {
         params.set("to", action.targetLifecycle ?? "ready");
-        const reasonRaw = window.prompt("Resume reason (required)", "runtime fix deployed");
+      }
+
+      if (action.command === "resume" || action.command === "quarantine") {
+        const promptLabel = action.reasonPrompt ?? "Reason (required)";
+        const reasonRaw = window.prompt(promptLabel, action.reasonDefault ?? "");
         if (reasonRaw === null) return;
         const reason = reasonRaw.trim();
         if (!reason) {
-          setActionStatus("Resume reason is required.");
+          setActionStatus(`${action.label} reason is required.`);
           return;
         }
         params.set("reason", reason);

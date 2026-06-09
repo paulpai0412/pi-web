@@ -15,6 +15,7 @@ const VALID_ACTIONS = [
   "repair-runtime",
   "retry-sync",
   "resume",
+  "quarantine",
 ] as const;
 
 type ValidAction = (typeof VALID_ACTIONS)[number];
@@ -45,7 +46,7 @@ export async function GET(
   const action = url.searchParams.get("action");
   const config = url.searchParams.get("config");
   const resumeTarget = url.searchParams.get("to");
-  const resumeReason = url.searchParams.get("reason");
+  const actionReason = url.searchParams.get("reason");
 
   if (!action || !(VALID_ACTIONS as readonly string[]).includes(action)) {
     return new Response(JSON.stringify({ error: "Invalid action" }), {
@@ -67,12 +68,19 @@ export async function GET(
         headers: { "Content-Type": "application/json" },
       });
     }
-    if (!resumeReason || resumeReason.trim().length === 0) {
+    if (!actionReason || actionReason.trim().length === 0) {
       return new Response(JSON.stringify({ error: "resume reason is required" }), {
         status: 400,
         headers: { "Content-Type": "application/json" },
       });
     }
+  }
+
+  if (action === "quarantine" && (!actionReason || actionReason.trim().length === 0)) {
+    return new Response(JSON.stringify({ error: "quarantine reason is required" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
   }
   // Reject paths with traversal sequences
   if (config.includes("..")) {
@@ -106,7 +114,10 @@ export async function GET(
     "--issue",
     issueId,
     ...(validAction === "resume"
-      ? ["--to", resumeTarget as "ready" | "running", "--reason", (resumeReason as string).trim()]
+      ? ["--to", resumeTarget as "ready" | "running", "--reason", (actionReason as string).trim()]
+      : []),
+    ...(validAction === "quarantine"
+      ? ["--reason", (actionReason as string).trim()]
       : []),
     "--config",
     resolvedConfig,
