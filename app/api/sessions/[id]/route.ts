@@ -55,8 +55,9 @@ export async function GET(
     if (url.searchParams.has("includeState")) {
       const rpc = getRpcSession(id);
       if (rpc?.isAlive()) {
+        const liveState = rpc.getLiveState();
         const state = await rpc.send({ type: "get_state" });
-        agentState = { running: true, state };
+        agentState = { running: liveState.running, state };
       } else {
         agentState = { running: false };
       }
