@@ -54,6 +54,8 @@ export type AgentPhase =
   | { kind: "running_tools"; tools: { id: string; name: string }[] }
   | null;
 
+export type AgentConnectionState = "idle" | "connecting" | "connected" | "reconnecting" | "disconnected";
+
 export interface UseAgentSessionOptions {
   session: SessionInfo | null;
   newSessionCwd: string | null;
@@ -98,6 +100,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [entryIds, setEntryIds] = useState<string[]>([]);
   const [streamState, dispatch] = useReducer(streamReducer, { isStreaming: false, streamingMessage: null });
   const [agentRunning, setAgentRunning] = useState(false);
+  const [connectionState, setConnectionState] = useState<AgentConnectionState>(isNew ? "idle" : "disconnected");
+  const [lastEventAt, setLastEventAt] = useState<number | null>(null);
+  const [reconnectCount, setReconnectCount] = useState(0);
   const [modelNames, setModelNames] = useState<Record<string, string>>({});
   const [modelList, setModelList] = useState<{ id: string; name: string; provider: string }[]>([]);
   const [modelThinkingLevels, setModelThinkingLevels] = useState<Record<string, string[]>>({});
@@ -212,28 +217,43 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [setToolPresetState]);
 
-  const connectEvents = useCallback((sid: string) => {
+  const connectEvents = useCallback((sid: string, reconnect = false) => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
+    setConnectionState(reconnect ? "reconnecting" : "connecting");
     const es = new EventSource(`/api/agent/${encodeURIComponent(sid)}/events`);
     eventSourceRef.current = es;
+
+    es.onopen = () => {
+      if (eventSourceRef.current !== es) return;
+      setConnectionState("connected");
+      setLastEventAt(Date.now());
+    };
+
     es.onmessage = (e) => {
       try {
         const event = JSON.parse(e.data) as AgentEvent;
+        setLastEventAt(Date.now());
         handleAgentEventRef.current?.(event);
       } catch {
         // ignore
       }
     };
+
     es.onerror = () => {
-      if (eventSourceRef.current === es && agentRunningRef.current) {
-        es.close();
-        eventSourceRef.current = null;
+      if (eventSourceRef.current !== es) return;
+      es.close();
+      eventSourceRef.current = null;
+      if (agentRunningRef.current) {
+        setReconnectCount((c) => c + 1);
+        setConnectionState("reconnecting");
         setTimeout(() => {
-          if (agentRunningRef.current) connectEvents(sid);
+          if (agentRunningRef.current) connectEvents(sid, true);
         }, 1000);
+      } else {
+        setConnectionState("disconnected");
       }
     };
   }, []);
@@ -398,6 +418,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       console.error("Failed to send message:", e);
       setAgentRunning(false);
       setAgentPhase(null);
+      setConnectionState("disconnected");
       dispatch({ type: "end" });
     }
   }, [isNew, newSessionCwd, newSessionModel, toolPreset, thinkingLevel, session, agentRunning, connectEvents, onSessionCreated]);
@@ -563,14 +584,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   useEffect(() => {
     if (session) {
       sessionIdRef.current = session.id;
+      setConnectionState("disconnected");
       loadSession(session.id, true, true).then((agentState) => {
         if (agentState?.running) {
           loadTools(session.id);
-          if (agentState.state?.isStreaming) {
-            setAgentRunning(true);
-            setAgentPhase({ kind: "waiting_model" });
-            connectEvents(session.id);
-          }
+          setAgentRunning(true);
+          setAgentPhase({ kind: "waiting_model" });
+          connectEvents(session.id);
         }
         if (agentState?.state) {
           if (agentState.state.isCompacting !== undefined) setIsCompacting(agentState.state.isCompacting);
@@ -579,10 +599,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (agentState.state.thinkingLevel !== undefined) setThinkingLevel((agentState.state.thinkingLevel as ThinkingLevelOption) ?? "auto");
         }
       });
+    } else if (isNew) {
+      setConnectionState("idle");
     }
     return () => {
       eventSourceRef.current?.close();
       eventSourceRef.current = null;
+      setConnectionState("disconnected");
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -641,7 +664,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     // State
     data, loading, error, activeLeafId, messages, entryIds, streamState,
-    agentRunning, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
+    agentRunning, connectionState, lastEventAt, reconnectCount,
+    modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, currentModel, displayModel, sessionStats,
     agentPhase,

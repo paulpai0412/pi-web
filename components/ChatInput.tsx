@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
+import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent, useMemo } from "react";
 
 export interface AttachedImage {
   data: string;   // base64, no prefix
@@ -61,6 +61,86 @@ const THINKING_LEVEL_DESC: Record<typeof THINKING_LEVELS[number], string> = {
   xhigh: "最高强度推理",
 };
 
+interface SlashCommandSuggestion {
+  command: string;
+  skill: string;
+  description: string;
+  aliases?: string[];
+}
+
+interface InstalledSkill {
+  name: string;
+  description?: string;
+  source?: "pi" | "agents";
+  commands?: { command: string; description?: string }[];
+}
+
+type SlashCommandState =
+  | { mode: "root"; query: string }
+  | { mode: "skill"; skill: string; query: string; hasTail: boolean }
+  | null;
+
+const SLASH_COMMANDS: SlashCommandSuggestion[] = [
+  {
+    command: "help",
+    skill: "Command Center",
+    description: "顯示所有可用指令與功能入口。用法：/help",
+  },
+  {
+    command: "compact",
+    skill: "Session",
+    description: "壓縮對話上下文，節省上下文窗口與 token 成本。",
+    aliases: ["compact", "compress"],
+  },
+  {
+    command: "tool",
+    skill: "ToolPanel",
+    description: "切換工具預設：off / default / full。",
+    aliases: ["tools", "preset"],
+  },
+  {
+    command: "model",
+    skill: "Model",
+    description: "切換模型 provider / model（搭配下方模型下拉選單）。",
+    aliases: ["models"],
+  },
+  {
+    command: "thinking",
+    skill: "Thinking",
+    description: "切換推理強度：auto / off / minimal / low / medium / high / xhigh。",
+    aliases: ["think", "thinking_level"],
+  },
+  {
+    command: "sound",
+    skill: "Notification",
+    description: "開啟或關閉完成提示音。",
+    aliases: ["notification", "audio", "sfx"],
+  },
+  {
+    command: "abort",
+    skill: "Execution",
+    description: "中止目前執行中的 Agent。",
+    aliases: ["stop", "cancel"],
+  },
+  {
+    command: "steer",
+    skill: "Execution",
+    description: "打斷正在運行的 Agent，立刻注入下一條訊息。",
+    aliases: ["interrupt", "inject"],
+  },
+  {
+    command: "follow",
+    skill: "Execution",
+    description: "在 Agent 完成後排隊發送的訊息（Follow-up）。",
+    aliases: ["followup"],
+  },
+  {
+    command: "attach",
+    skill: "Input",
+    description: "快速插入圖片或文件上下文（等同附件功能）。",
+  },
+];
+
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, modelNames, modelList, onModelChange,
   onCompact, onAbortCompaction, isCompacting, compactError, toolPreset, onToolPresetChange,
@@ -75,15 +155,19 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
+  const [installedSkillCommands, setInstalledSkillCommands] = useState<SlashCommandSuggestion[]>([]);
+  const [skillCommandsBySkill, setSkillCommandsBySkill] = useState<Record<string, SlashCommandSuggestion[]>>({});
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownPanelRef = useRef<HTMLDivElement>(null);
   const toolDropdownRef = useRef<HTMLDivElement>(null);
   const thinkingDropdownRef = useRef<HTMLDivElement>(null);
+  const slashSuggestionListRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isComposingRef = useRef(false);
   const lastCompositionEndAtRef = useRef(0);
+  const [slashSuggestionIndex, setSlashSuggestionIndex] = useState(0);
 
   useImperativeHandle(ref, () => ({
     insertIfEmpty(text: string) {
@@ -163,6 +247,160 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     });
   }, []);
 
+  useEffect(() => {
+    let canceled = false;
+    fetch("/api/skills/installed")
+      .then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((data: { skills?: InstalledSkill[] }) => {
+        if (canceled) return;
+
+        const skills = (data.skills ?? []).filter((s) => Boolean(s.name));
+        const mapped = skills.map((s) => ({
+          command: s.name,
+          skill: s.source === "agents" ? "Custom Skill" : "Skill",
+          description: s.description?.trim() || `執行 ${s.name} skill`,
+        }));
+
+        const bySkill: Record<string, SlashCommandSuggestion[]> = {};
+        for (const skill of skills) {
+          const key = skill.name.toLowerCase();
+          const dedup = new Map<string, SlashCommandSuggestion>();
+          for (const c of skill.commands ?? []) {
+            const normalized = (c.command ?? "").trim().replace(/^\/+/, "");
+            if (!normalized) continue;
+            if (!dedup.has(normalized)) {
+              dedup.set(normalized, {
+                command: normalized,
+                skill: skill.name,
+                description: c.description?.trim() || `${skill.name} command`,
+              });
+            }
+          }
+          if (dedup.size > 0) bySkill[key] = Array.from(dedup.values());
+        }
+
+        setInstalledSkillCommands(mapped);
+        setSkillCommandsBySkill(bySkill);
+      })
+      .catch(() => {
+        if (canceled) return;
+        setInstalledSkillCommands([]);
+        setSkillCommandsBySkill({});
+      });
+
+    return () => {
+      canceled = true;
+    };
+  }, []);
+
+  const allSlashCommands = useMemo(() => {
+    const byCommand = new Map<string, SlashCommandSuggestion>();
+    for (const cmd of [...SLASH_COMMANDS, ...installedSkillCommands]) {
+      if (!byCommand.has(cmd.command)) byCommand.set(cmd.command, cmd);
+    }
+    return Array.from(byCommand.values());
+  }, [installedSkillCommands]);
+
+  const slashCommandState = useMemo<SlashCommandState>(() => {
+    const raw = value.trimStart();
+    if (!raw.startsWith("/")) return null;
+
+    const firstSpace = raw.indexOf(" ");
+    if (firstSpace === -1) {
+      return { mode: "root", query: raw.slice(1) };
+    }
+
+    const skillToken = raw.slice(1, firstSpace).toLowerCase();
+    const skillCommands = skillCommandsBySkill[skillToken];
+    if (!skillCommands || skillCommands.length === 0) return null;
+
+    const tailRaw = raw.slice(firstSpace + 1);
+    const tail = tailRaw.trimStart();
+    if (tail.length === 0) {
+      return { mode: "skill", skill: skillToken, query: "", hasTail: false };
+    }
+
+    const secondSpace = tail.indexOf(" ");
+    if (secondSpace === -1) {
+      return { mode: "skill", skill: skillToken, query: tail, hasTail: false };
+    }
+
+    return {
+      mode: "skill",
+      skill: skillToken,
+      query: tail.slice(0, secondSpace),
+      hasTail: true,
+    };
+  }, [value, skillCommandsBySkill]);
+
+  const rankSlashSuggestions = useCallback((items: SlashCommandSuggestion[], query: string) => {
+    const q = query.toLowerCase();
+    const score = (cmd: SlashCommandSuggestion) => {
+      const keys = [cmd.command, ...(cmd.aliases ?? [])].map((k) => k.toLowerCase());
+      if (!q) return 0;
+      if (keys.some((k) => k === q)) return 1;
+      if (keys.some((k) => k.startsWith(q))) return 2;
+      if (keys.some((k) => k.includes(q))) return 3;
+      return 999;
+    };
+
+    return items
+      .map((cmd) => ({ cmd, score: score(cmd) }))
+      .filter((item) => item.score < 999)
+      .sort((a, b) => a.score - b.score || a.cmd.command.localeCompare(b.cmd.command))
+      .map((item) => item.cmd)
+      .slice(0, 60);
+  }, []);
+
+  const slashSuggestions = useMemo(() => {
+    if (!slashCommandState) return [] as SlashCommandSuggestion[];
+    if (slashCommandState.mode === "root") {
+      return rankSlashSuggestions(allSlashCommands, slashCommandState.query);
+    }
+    const candidates = skillCommandsBySkill[slashCommandState.skill] ?? [];
+    return rankSlashSuggestions(candidates, slashCommandState.query);
+  }, [slashCommandState, allSlashCommands, skillCommandsBySkill, rankSlashSuggestions]);
+
+  const showSlashSuggestions = Boolean(
+    slashCommandState
+      && (slashCommandState.mode === "root" || !slashCommandState.hasTail)
+      && slashSuggestions.length > 0,
+  );
+
+  useEffect(() => {
+    if (showSlashSuggestions) setSlashSuggestionIndex(0);
+  }, [showSlashSuggestions, slashSuggestions.length]);
+
+  const applySlashSuggestion = useCallback((command: string) => {
+    setValue((prev) => {
+      const leadingMatch = prev.match(/^(\s*)/);
+      const leading = leadingMatch?.[1] ?? "";
+
+      if (slashCommandState?.mode === "skill") {
+        return `${leading}/${command} `;
+      }
+
+      const rest = prev.slice(leading.length);
+      const tokenMatch = rest.match(/^(\/\S*)/);
+      if (!tokenMatch) return `${leading}/${command} `;
+      const suffix = rest.slice(tokenMatch[0].length).trimStart();
+      return `${leading}/${command} ${suffix}`;
+    });
+    requestAnimationFrame(() => {
+      if (!textareaRef.current) return;
+      textareaRef.current.focus();
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
+    });
+  }, [slashCommandState]);
+
+  const selectSlashSuggestion = useCallback((index: number) => {
+    const target = slashSuggestions[index];
+    if (!target) return;
+    applySlashSuggestion(target.command);
+    setSlashSuggestionIndex(index);
+  }, [applySlashSuggestion, slashSuggestions]);
+
   const handleSend = useCallback(() => {
     const msg = value.trim();
     if (!msg && !attachedImages.length) return;
@@ -202,7 +440,31 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         return;
       }
 
+      if (showSlashSuggestions && slashSuggestions.length > 0) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setSlashSuggestionIndex((prev) => (prev + 1) % slashSuggestions.length);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setSlashSuggestionIndex((prev) => (prev - 1 + slashSuggestions.length) % slashSuggestions.length);
+          return;
+        }
+        if (e.key === "Tab" && !e.shiftKey) {
+          e.preventDefault();
+          selectSlashSuggestion(slashSuggestionIndex);
+          return;
+        }
+      }
+
       if (e.key === "Enter" && !e.shiftKey) {
+        if (showSlashSuggestions && slashSuggestions.length > 0) {
+          e.preventDefault();
+          selectSlashSuggestion(slashSuggestionIndex);
+          return;
+        }
+
         e.preventDefault();
         if (isStreaming && (onSteer || onFollowUp)) {
           // Default Enter sends as steer if available, else followup
@@ -212,7 +474,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         }
       }
     },
-    [isStreaming, onSteer, onFollowUp, sendQueued, handleSend]
+    [showSlashSuggestions, slashSuggestions, slashSuggestionIndex, selectSlashSuggestion, isStreaming, onSteer, onFollowUp, sendQueued, handleSend]
   );
 
   const handleInput = useCallback(() => {
@@ -230,8 +492,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     const files = imageItems.map((item) => item.getAsFile()).filter((f): f is File => f !== null);
     processImageFiles(files);
   }, [processImageFiles]);
-
-
 
   // Build model options: prefer modelList (has provider info), fallback to modelNames
   const modelOptions: ModelOption[] = (() => {
@@ -348,7 +608,65 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         )}
 
         {/* Main input */}
-        <div
+        <div style={{ position: "relative" }}>
+          {showSlashSuggestions && (
+            <div
+              ref={slashSuggestionListRef}
+              style={{
+                position: "absolute",
+                left: 0,
+                right: 0,
+                bottom: "calc(100% + 6px)",
+                zIndex: 40,
+                background: "var(--bg)",
+                border: "1px solid var(--border)",
+                borderRadius: 12,
+                overflow: "hidden",
+                boxShadow: "0 10px 24px rgba(15,23,42,0.18)",
+                maxHeight: 224,
+                overflowY: "auto",
+              }}
+            >
+              {slashSuggestions.map((item, index) => {
+                const isActive = index === slashSuggestionIndex;
+                return (
+                  <button
+                    key={item.command}
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      selectSlashSuggestion(index);
+                    }}
+                    onMouseEnter={() => setSlashSuggestionIndex(index)}
+                    style={{
+                      width: "100%",
+                      border: "none",
+                      padding: "8px 10px",
+                      textAlign: "left",
+                      background: isActive ? "var(--bg-hover)" : "none",
+                      color: isActive ? "var(--text)" : "var(--text-muted)",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 4,
+                      cursor: "pointer",
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "none";
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                      <span style={{ fontWeight: 600, color: "var(--text)", fontSize: 12 }}>{`/${item.command}`}</span>
+                      <span style={{ fontSize: 11, color: "var(--text-dim)" }}>{item.skill}</span>
+                    </div>
+                    <span style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.45 }}>
+                      {item.description}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <div
           style={{
             display: "flex",
             gap: 8,
@@ -478,6 +796,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               Send
             </button>
           )}
+        </div>
         </div>
 
         {/* Bottom bar: left | center (context) | right */}

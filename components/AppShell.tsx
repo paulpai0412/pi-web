@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { SessionSidebar } from "./SessionSidebar";
-import { ChatWindow } from "./ChatWindow";
+import { ChatWindow, type ChatRuntimeStatus } from "./ChatWindow";
 import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
 import { ModelsConfig } from "./ModelsConfig";
@@ -61,6 +61,15 @@ export function AppShell() {
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
   const handleContextUsageChange = useCallback((usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => {
     setContextUsage(usage);
+  }, []);
+
+  const [chatRuntimeStatus, setChatRuntimeStatus] = useState<ChatRuntimeStatus | null>(null);
+  const [northstarRuntimeStatus, setNorthstarRuntimeStatus] = useState<ChatRuntimeStatus | null>(null);
+  const handleChatRuntimeStatusChange = useCallback((status: ChatRuntimeStatus | null) => {
+    setChatRuntimeStatus(status);
+  }, []);
+  const handleNorthstarRuntimeStatusChange = useCallback((status: ChatRuntimeStatus | null) => {
+    setNorthstarRuntimeStatus(status);
   }, []);
 
   // Right panel — file tabs only
@@ -232,7 +241,54 @@ export function AppShell() {
   // While restoring initial session from URL, don't show the placeholder
   const showPlaceholder = initialSessionRestored && !showChat;
 
+  const activeRuntimeStatus = workspaceView === "chat" ? chatRuntimeStatus : northstarRuntimeStatus;
+  const runtimeExecutionLabel = activeRuntimeStatus?.execution === "streaming"
+    ? "Streaming"
+    : activeRuntimeStatus?.execution === "running_tools"
+      ? "Running tools"
+      : activeRuntimeStatus?.execution === "thinking"
+        ? "Thinking"
+        : activeRuntimeStatus?.execution === "compacting"
+          ? "Compacting"
+          : "Idle";
+  const runtimeConnectionTone = activeRuntimeStatus?.connection === "connected"
+    ? "#10b981"
+    : activeRuntimeStatus?.connection === "reconnecting"
+      ? "#f59e0b"
+      : activeRuntimeStatus?.connection === "disconnected"
+        ? "#ef4444"
+        : "var(--text-dim)";
+
   const activeFileTab = fileTabs.find((t) => t.id === activeFileTabId) ?? null;
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const base = "Pi Agent Web";
+    const statusPrefix = activeRuntimeStatus?.execution && activeRuntimeStatus.execution !== "idle"
+      ? `[${runtimeExecutionLabel}] `
+      : activeRuntimeStatus?.connection === "reconnecting"
+        ? "[Reconnecting] "
+        : "";
+    const sessionName = selectedSession?.name || selectedSession?.firstMessage?.slice(0, 24);
+    document.title = `${statusPrefix}${sessionName ? `${sessionName} · ` : ""}${base}`;
+
+    const tone = activeRuntimeStatus?.execution && activeRuntimeStatus.execution !== "idle"
+      ? "#2563eb"
+      : activeRuntimeStatus?.connection === "connected"
+        ? "#10b981"
+        : activeRuntimeStatus?.connection === "reconnecting"
+          ? "#f59e0b"
+          : "#9ca3af";
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='#0f172a'/><circle cx='16' cy='16' r='7' fill='${tone}'/></svg>`;
+    const href = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+    let link = document.querySelector("link[rel='icon']") as HTMLLinkElement | null;
+    if (!link) {
+      link = document.createElement("link");
+      link.rel = "icon";
+      document.head.appendChild(link);
+    }
+    link.href = href;
+  }, [activeRuntimeStatus, runtimeExecutionLabel, selectedSession]);
 
   const chatPanel = showChat ? (
     <ChatWindow
@@ -250,6 +306,7 @@ export function AppShell() {
       onBranchLeafChange={handleBranchLeafChange}
       onSessionStatsChange={handleSessionStatsChange}
       onContextUsageChange={handleContextUsageChange}
+      onRuntimeStatusChange={handleChatRuntimeStatusChange}
     />
   ) : (
     <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12, padding: 16, textAlign: "center" }}>
@@ -267,6 +324,7 @@ export function AppShell() {
       onSessionForked={handleNorthstarSessionForked}
       modelsRefreshKey={modelsRefreshKey}
       chatInputRef={northstarChatInputRef}
+      onRuntimeStatusChange={handleNorthstarRuntimeStatusChange}
       compactLayout
     />
   ) : (
@@ -439,6 +497,34 @@ export function AppShell() {
             onSelect={setWorkspaceView}
           />
           {/* <<< northstar */}
+          {showChat && (workspaceView === "chat" || workspaceView === "northstar") && activeRuntimeStatus && (
+            <div
+              title={activeRuntimeStatus.stalled ? "No agent event in the last 15 seconds" : undefined}
+              style={{
+                marginLeft: "auto",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                paddingLeft: 12,
+                paddingRight: (sessionStats || contextUsage) ? 8 : (rightPanelOpen ? 12 : 48),
+                height: "100%",
+                fontSize: 11,
+                color: "var(--text-muted)",
+                whiteSpace: "nowrap",
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                <span style={{ width: 7, height: 7, borderRadius: 99, background: runtimeConnectionTone }} />
+                {activeRuntimeStatus.connection}
+              </span>
+              <span style={{ color: "var(--text-dim)" }}>•</span>
+              <span style={{ color: activeRuntimeStatus.stalled ? "#ef4444" : "var(--text-muted)" }}>{runtimeExecutionLabel}</span>
+              {activeRuntimeStatus.reconnectCount > 0 && (
+                <span style={{ color: "var(--text-dim)" }}>reconnect ×{activeRuntimeStatus.reconnectCount}</span>
+              )}
+            </div>
+          )}
           {/* Session stats — right-aligned in top bar (chat view only) */}
           {showChat && (workspaceView === "chat" || workspaceView === "northstar") && (sessionStats || contextUsage) && (() => {
             const t = sessionStats?.tokens;
@@ -473,7 +559,7 @@ export function AppShell() {
               <div
                 title={tooltip}
                 style={{
-                  marginLeft: "auto",
+                  marginLeft: activeRuntimeStatus ? 0 : "auto",
                   display: "flex", alignItems: "center", gap: 10,
                   paddingLeft: 12,
                   paddingRight: rightPanelOpen ? 12 : 48,

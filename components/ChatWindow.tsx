@@ -1,14 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentMessage, SessionInfo, SessionTreeNode } from "@/lib/types";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { BranchNavigator } from "./BranchNavigator";
-import { useAgentSession, type AgentPhase } from "@/hooks/useAgentSession";
+import { useAgentSession, type AgentPhase, type AgentConnectionState } from "@/hooks/useAgentSession";
 import { useAudio } from "@/hooks/useAudio";
 import { useDragDrop } from "@/hooks/useDragDrop";
+
+export interface ChatRuntimeStatus {
+  connection: AgentConnectionState;
+  execution: "idle" | "thinking" | "streaming" | "running_tools" | "compacting";
+  toolNames: string[];
+  lastEventAt: number | null;
+  reconnectCount: number;
+  stalled: boolean;
+}
 
 interface Props {
   session: SessionInfo | null;
@@ -25,6 +34,7 @@ interface Props {
   onSystemPromptChange?: (prompt: string | null) => void;
   onSessionStatsChange?: (stats: { tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }; cost?: number } | null) => void;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
+  onRuntimeStatusChange?: (status: ChatRuntimeStatus | null) => void;
   compactLayout?: boolean;
 }
 
@@ -95,10 +105,11 @@ function Typewriter({ phrases }: { phrases: string[] }) {
   );
 }
 
-export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, branchTree, branchActiveLeafId, onBranchLeafChange, onSystemPromptChange, onSessionStatsChange, onContextUsageChange, compactLayout = false }: Props) {
+export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, branchTree, branchActiveLeafId, onBranchLeafChange, onSystemPromptChange, onSessionStatsChange, onContextUsageChange, onRuntimeStatusChange, compactLayout = false }: Props) {
   const {
     loading, error, messages, entryIds, streamState,
-    agentRunning, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
+    agentRunning, connectionState, lastEventAt, reconnectCount,
+    modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, displayModel: displayModelValue, sessionStats,
     agentPhase,
@@ -173,6 +184,67 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     ? (modelThinkingLevelMaps[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
     : null;
 
+  const executionState: ChatRuntimeStatus["execution"] = isCompacting
+    ? "compacting"
+    : streamState.isStreaming
+      ? "streaming"
+      : agentPhase?.kind === "running_tools"
+        ? "running_tools"
+        : agentRunning
+          ? "thinking"
+          : "idle";
+  const runningTools = useMemo(() => (agentPhase?.kind === "running_tools" ? agentPhase.tools.map((t) => t.name) : []), [agentPhase]);
+  const runningToolsKey = runningTools.join("|");
+
+  const [clockMs, setClockMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!agentRunning && !lastEventAt) return;
+    const t = setInterval(() => setClockMs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [agentRunning, lastEventAt]);
+
+  const stalled = agentRunning
+    && connectionState === "connected"
+    && lastEventAt !== null
+    && clockMs - lastEventAt > 15000;
+
+  useEffect(() => {
+    const payload: ChatRuntimeStatus = {
+      connection: connectionState,
+      execution: executionState,
+      toolNames: runningTools,
+      lastEventAt,
+      reconnectCount,
+      stalled,
+    };
+    onRuntimeStatusChange?.(payload);
+  }, [connectionState, executionState, runningToolsKey, runningTools, lastEventAt, reconnectCount, stalled, onRuntimeStatusChange]);
+  useEffect(() => () => { onRuntimeStatusChange?.(null); }, [onRuntimeStatusChange]);
+
+  const jumpToLatest = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior });
+  }, [scrollContainerRef]);
+
+  // Keep latest output pinned while the agent is running.
+  useEffect(() => {
+    if (!agentRunning) return;
+    jumpToLatest("instant");
+  }, [agentRunning, messages.length, streamState.streamingMessage, streamState.isStreaming, jumpToLatest]);
+
+  useEffect(() => {
+    if (!agentRunning) return;
+    const onVisible = () => {
+      if (document.visibilityState === "visible") jumpToLatest("instant");
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [agentRunning, jumpToLatest]);
   const chatInputElement = (
     <ChatInput
       ref={chatInputRef}
@@ -400,7 +472,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             )}
 
             {agentRunning && !compactLayout && (
-              <div style={{ height: scrollContainerRef.current ? scrollContainerRef.current.clientHeight : "80vh" }} />
+              <div style={{ height: 96 }} />
             )}
 
             <div ref={messagesEndRef} />

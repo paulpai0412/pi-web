@@ -24,6 +24,7 @@ export class AgentSessionWrapper {
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private onDestroyCallback: (() => void) | null = null;
   private _alive = true;
+  private _running = false;
 
   constructor(public readonly inner: AgentSessionLike) {}
 
@@ -41,10 +42,16 @@ export class AgentSessionWrapper {
 
   start(): void {
     this.unsubscribe = this.inner.subscribe((event: AgentEvent) => {
+      this.observeEvent(event);
       this.resetIdleTimer();
       for (const l of this.listeners) l(event);
     });
     this.resetIdleTimer();
+  }
+
+  private observeEvent(event: AgentEvent): void {
+    if (event.type === "agent_start") this._running = true;
+    if (event.type === "agent_end") this._running = false;
   }
 
   private resetIdleTimer(): void {
@@ -64,6 +71,14 @@ export class AgentSessionWrapper {
     this.onDestroyCallback = cb;
   }
 
+  getLiveState(): { running: boolean; isStreaming: boolean; isCompacting: boolean } {
+    return {
+      running: this._running || this.inner.isStreaming || this.inner.isCompacting,
+      isStreaming: this.inner.isStreaming,
+      isCompacting: this.inner.isCompacting,
+    };
+  }
+
   async send(command: Record<string, unknown>): Promise<unknown> {
     this.resetIdleTimer();
     const type = command.type as string;
@@ -71,6 +86,7 @@ export class AgentSessionWrapper {
     switch (type) {
       case "prompt": {
         // Fire and forget — events come via subscribe
+        this._running = true;
         const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
         this.inner.prompt(command.message as string, promptImages?.length ? { images: promptImages } : undefined).catch(() => {});
         return null;
@@ -78,6 +94,7 @@ export class AgentSessionWrapper {
 
       case "abort":
         await this.inner.abort();
+        this._running = false;
         return null;
 
       case "get_state": {
@@ -263,6 +280,15 @@ function getLocks(): Map<string, Promise<{ session: AgentSessionWrapper; realSes
 
 export function getRpcSession(sessionId: string): AgentSessionWrapper | undefined {
   return getRegistry().get(sessionId);
+}
+
+export function listRpcSessionLiveStates(): Record<string, { running: boolean; isStreaming: boolean; isCompacting: boolean }> {
+  const states: Record<string, { running: boolean; isStreaming: boolean; isCompacting: boolean }> = {};
+  for (const [id, session] of getRegistry()) {
+    if (!session.isAlive()) continue;
+    states[id] = session.getLiveState();
+  }
+  return states;
 }
 
 /**

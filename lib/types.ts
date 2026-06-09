@@ -181,6 +181,11 @@ export interface SessionInfo {
   messageCount: number;
   firstMessage: string;
   parentSessionId?: string; // set if this session was forked from another
+  agentState?: {
+    running: boolean;
+    isStreaming: boolean;
+    isCompacting: boolean;
+  };
 }
 
 export interface SessionContext {

@@ -218,6 +218,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [unreadById, setUnreadById] = useState<Record<string, number>>({});
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
   const [homeDir, setHomeDir] = useState<string>("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -231,16 +232,35 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevMessageCountRef = useRef<Map<string, number>>(new Map());
 
-  const loadSessions = useCallback(async (showLoading = false) => {
+  const loadSessions = useCallback(async (showLoading = false, markRefreshed = true) => {
     try {
       if (showLoading) setLoading(true);
       const res = await fetch("/api/sessions");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as { sessions: SessionInfo[] };
-      setAllSessions(data.sessions);
+      const nextSessions = data.sessions;
+      const nextCounts = new Map<string, number>();
+      for (const s of nextSessions) nextCounts.set(s.id, s.messageCount);
+
+      setUnreadById((prev) => {
+        const next = { ...prev };
+        for (const s of nextSessions) {
+          const prevCount = prevMessageCountRef.current.get(s.id);
+          if (prevCount !== undefined && s.messageCount > prevCount && s.id !== selectedSessionId) {
+            next[s.id] = (next[s.id] ?? 0) + (s.messageCount - prevCount);
+          }
+        }
+        for (const id of Object.keys(next)) {
+          if (!nextCounts.has(id) || id === selectedSessionId) delete next[id];
+        }
+        return next;
+      });
+      prevMessageCountRef.current = nextCounts;
+      setAllSessions(nextSessions);
       setError(null);
-      if (!showLoading) {
+      if (!showLoading && markRefreshed) {
         setSessionRefreshDone(true);
         if (sessionRefreshTimerRef.current) clearTimeout(sessionRefreshTimerRef.current);
         sessionRefreshTimerRef.current = setTimeout(() => setSessionRefreshDone(false), 2000);
@@ -250,7 +270,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     } finally {
       if (showLoading) setLoading(false);
     }
-  }, []);
+  }, [selectedSessionId]);
 
   const initialLoadDone = useRef(false);
   useEffect(() => {
@@ -258,6 +278,21 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     initialLoadDone.current = true;
     loadSessions(isFirst);
   }, [loadSessions, refreshKey]);
+
+  useEffect(() => {
+    const t = setInterval(() => loadSessions(false, false), 5000);
+    return () => clearInterval(t);
+  }, [loadSessions]);
+
+  useEffect(() => {
+    if (!selectedSessionId) return;
+    setUnreadById((prev) => {
+      if (!(selectedSessionId in prev)) return prev;
+      const next = { ...prev };
+      delete next[selectedSessionId];
+      return next;
+    });
+  }, [selectedSessionId]);
 
   useEffect(() => {
     if (explorerRefreshKey !== undefined) setExplorerKey((k) => k + 1);
@@ -677,6 +712,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             key={node.session.id}
             node={node}
             selectedSessionId={selectedSessionId}
+            unreadById={unreadById}
             onSelectSession={onSelectSession}
             onRenamed={loadSessions}
             onSessionDeleted={(id) => {
@@ -782,6 +818,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 function SessionTreeItem({
   node,
   selectedSessionId,
+  unreadById,
   onSelectSession,
   onRenamed,
   onSessionDeleted,
@@ -789,6 +826,7 @@ function SessionTreeItem({
 }: {
   node: SessionTreeNode;
   selectedSessionId: string | null;
+  unreadById: Record<string, number>;
   onSelectSession: (s: SessionInfo) => void;
   onRenamed?: () => void;
   onSessionDeleted?: (id: string) => void;
@@ -814,6 +852,7 @@ function SessionTreeItem({
         <SessionItem
           session={node.session}
           isSelected={node.session.id === selectedSessionId}
+          unreadCount={unreadById[node.session.id] ?? 0}
           onClick={() => onSelectSession(node.session)}
           onRenamed={onRenamed}
           onDeleted={(id) => onSessionDeleted?.(id)}
@@ -830,6 +869,7 @@ function SessionTreeItem({
               key={child.session.id}
               node={child}
               selectedSessionId={selectedSessionId}
+              unreadById={unreadById}
               onSelectSession={onSelectSession}
               onRenamed={onRenamed}
               onSessionDeleted={onSessionDeleted}
@@ -845,6 +885,7 @@ function SessionTreeItem({
 function SessionItem({
   session,
   isSelected,
+  unreadCount,
   onClick,
   onRenamed,
   onDeleted,
@@ -855,6 +896,7 @@ function SessionItem({
 }: {
   session: SessionInfo;
   isSelected: boolean;
+  unreadCount: number;
   onClick: () => void;
   onRenamed?: () => void;
   onDeleted?: (id: string) => void;
@@ -871,6 +913,13 @@ function SessionItem({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const title = session.name || session.firstMessage.slice(0, 50) || session.id.slice(0, 12);
+  const runtimeLabel = session.agentState?.isCompacting
+    ? "compacting"
+    : session.agentState?.isStreaming
+      ? "streaming"
+      : session.agentState?.running
+        ? "running"
+        : null;
 
   const startRename = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1036,9 +1085,33 @@ function SessionItem({
             >
               {title}
             </div>
-            <div style={{ marginTop: 2, display: "flex", gap: 8, color: "var(--text-dim)", fontSize: 11 }}>
+            <div style={{ marginTop: 2, display: "flex", gap: 8, color: "var(--text-dim)", fontSize: 11, alignItems: "center" }}>
               <span title={session.modified}>{formatRelativeTime(session.modified)}</span>
               <span>{session.messageCount} msgs</span>
+              {runtimeLabel && (
+                <span style={{
+                  fontSize: 10,
+                  color: session.agentState?.isCompacting ? "#f59e0b" : "#10b981",
+                  border: `1px solid ${session.agentState?.isCompacting ? "rgba(245,158,11,0.35)" : "rgba(16,185,129,0.35)"}`,
+                  borderRadius: 999,
+                  padding: "0 6px",
+                  lineHeight: "16px",
+                }}>
+                  {runtimeLabel}
+                </span>
+              )}
+              {unreadCount > 0 && !isSelected && (
+                <span style={{
+                  fontSize: 10,
+                  color: "#2563eb",
+                  border: "1px solid rgba(37,99,235,0.35)",
+                  borderRadius: 999,
+                  padding: "0 6px",
+                  lineHeight: "16px",
+                }}>
+                  +{unreadCount}
+                </span>
+              )}
             </div>
           </div>
 
