@@ -2,18 +2,25 @@
 
 [pi 编程智能体](https://github.com/badlogic/pi-mono) 的网页界面。在浏览器中浏览会话、与智能体对话、分叉对话、切换消息分支。
 
+本仓库：`https://github.com/paulpai0412/pi-web`
+
 ## 快速开始
 
-**无需安装，直接运行：**
+**从本仓库启动（推荐）：**
 
 ```bash
-npx @agegr/pi-web@latest
+git clone https://github.com/paulpai0412/pi-web.git
+cd pi-web
+npm install
+npm run dev
 ```
 
-**或全局安装后使用：**
+**或使用 npm 包：**
 
 ```bash
-npm install -g @agegr/pi-web
+npx @paulpai0412/pi-web@latest
+# 或
+npm install -g @paulpai0412/pi-web
 pi-web
 ```
 
