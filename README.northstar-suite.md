@@ -62,13 +62,38 @@ npm run build -- --webpack
 
 ## 3) 啟動與設定
 
-### 一般啟動
+### 3.1 `northstar setup` 需要的環境設定
+
+若你會在 consumer repo 走 `/northstar-setup` + `/northstar-execute`，建議先設定：
+- `NORTHSTAR_ROOT`：Northstar 程式根目錄（pi-web issue action 也依賴它）
+- `GITHUB_TOKEN`：GitHub API token（或至少先 `gh auth login`）
+- `NORTHSTAR_CONFIG`（可選）：預設 consumer config 路徑
+
+#### Linux / macOS
+
+```bash
+export NORTHSTAR_ROOT=/path/to/northstar
+export GITHUB_TOKEN="$(gh auth token)"
+export NORTHSTAR_CONFIG=/path/to/consumer-repo/.northstar.yaml  # optional
+```
+
+#### Windows PowerShell
+
+```powershell
+$env:NORTHSTAR_ROOT = "D:\path\to\northstar"
+$env:GITHUB_TOKEN = (gh auth token)
+$env:NORTHSTAR_CONFIG = "D:\path\to\consumer-repo\.northstar.yaml"  # optional
+```
+
+> `runtime.host_adapter` 若選 codex / opencode / pi，請先在該 SDK 完成登入或金鑰設定，再跑 `npm run skill:doctor`。
+
+### 3.2 一般啟動
 
 ```bash
 pi-web
 ```
 
-### 指定 Northstar 根目錄（建議）
+### 3.3 指定 Northstar 根目錄啟動（建議）
 
 Issue action / run route 需要 Northstar CLI 來源路徑；請設定 `NORTHSTAR_ROOT`。
 
@@ -103,6 +128,14 @@ pi-web
 ## 5) Consumer repo 一條龍（由無到有）
 
 以下用 `consumer-repo` 當例子。
+
+### Step 0 — 在 agent 先跑 `/northstar-setup`
+
+先讓 setup 流程確認：
+- config 位置（`.northstar.yaml`）
+- `runtime.host_adapter`
+- GitHub credential（`GITHUB_TOKEN` 或 gh fallback）
+- 是否啟用 Project viewer
 
 ### Step 1 — 安裝 Northstar + skill
 
