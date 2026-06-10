@@ -56,6 +56,8 @@ npm run dev   # 端口 3030
 
 ## Northstar 整合安装包
 
+详细安装/操作文档请见：[`README.northstar-suite.md`](./README.northstar-suite.md)
+
 本仓库可以产出一个跨平台 npm 安装包，内嵌 `@northstar/runtime`，适合 Windows、
 macOS、Linux 使用：
 
