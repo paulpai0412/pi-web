@@ -5,6 +5,15 @@ import type { SessionInfo } from "@/lib/types";
 import { FileExplorer } from "./FileExplorer";
 import { useTheme } from "@/hooks/useTheme";
 
+const EXPLORER_SPLIT_STORAGE_KEY = "pi-web.sidebarExplorerRatio";
+const EXPLORER_SPLIT_DEFAULT = 0.5;
+const EXPLORER_SPLIT_MIN = 0.22;
+const EXPLORER_SPLIT_MAX = 0.78;
+
+function clampExplorerRatio(value: number) {
+  return Math.min(EXPLORER_SPLIT_MAX, Math.max(EXPLORER_SPLIT_MIN, value));
+}
+
 interface Props {
   selectedSessionId: string | null;
   onSelectSession: (session: SessionInfo, isRestore?: boolean) => void;
@@ -227,13 +236,90 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const customPathInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [explorerOpen, setExplorerOpen] = useState(true);
+  const [explorerRatio, setExplorerRatio] = useState(EXPLORER_SPLIT_DEFAULT);
+  const [splitResizing, setSplitResizing] = useState(false);
   const [explorerKey, setExplorerKey] = useState(0);
   const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevMessageCountRef = useRef<Map<string, number>>(new Map());
+  const splitContainerRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    const stored = Number(window.localStorage.getItem(EXPLORER_SPLIT_STORAGE_KEY));
+    if (Number.isFinite(stored) && stored > 0) {
+      setExplorerRatio(clampExplorerRatio(stored));
+    }
+  }, []);
+
+  const clearSplitResizeStyles = useCallback(() => {
+    if (splitResizing) return;
+    if (document.body.style.cursor === "ns-resize") {
+      document.body.style.cursor = "";
+    }
+    if (document.body.style.userSelect === "none") {
+      document.body.style.userSelect = "";
+    }
+  }, [splitResizing]);
+
+  useEffect(() => {
+    clearSplitResizeStyles();
+  });
+
+  useEffect(() => {
+    return () => {
+      clearSplitResizeStyles();
+    };
+  }, [clearSplitResizeStyles]);
+
+  const handleExplorerSplitPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    const container = splitContainerRef.current;
+    if (!container) return;
+
+    event.preventDefault();
+    const height = Math.max(1, container.getBoundingClientRect().height);
+    const startY = event.clientY;
+    const startRatio = explorerRatio;
+
+    setSplitResizing(true);
+    document.body.style.cursor = "ns-resize";
+    document.body.style.userSelect = "none";
+
+    const updateRatio = (clientY: number) => {
+      const next = clampExplorerRatio(startRatio - ((clientY - startY) / height));
+      setExplorerRatio(next);
+      return next;
+    };
+
+  const cleanup = () => {
+      setSplitResizing(false);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerCancel);
+    };
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      updateRatio(moveEvent.clientY);
+    };
+
+    const onPointerUp = (upEvent: PointerEvent) => {
+      const next = updateRatio(upEvent.clientY);
+      window.localStorage.setItem(EXPLORER_SPLIT_STORAGE_KEY, String(next));
+      cleanup();
+    };
+
+    const onPointerCancel = () => {
+      cleanup();
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerCancel);
+  }, [explorerRatio]);
   const loadSessions = useCallback(async (showLoading = false, markRefreshed = true) => {
     try {
       if (showLoading) setLoading(true);
@@ -690,127 +776,166 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         </div>
       </div>
 
-      {/* Session list */}
-      <div style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}>
-        {loading && (
-          <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
-            Loading...
-          </div>
-        )}
-        {error && (
-          <div style={{ padding: "12px 14px", color: "#f87171", fontSize: 12 }}>
-            {error}
-          </div>
-        )}
-        {!loading && !error && filteredSessions.length === 0 && (
-          <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
-            No sessions found
-          </div>
-        )}
-        {sessionTree.map((node) => (
-          <SessionTreeItem
-            key={node.session.id}
-            node={node}
-            selectedSessionId={selectedSessionId}
-            unreadById={unreadById}
-            onSelectSession={onSelectSession}
-            onRenamed={loadSessions}
-            onSessionDeleted={(id) => {
-              onSessionDeleted?.(id);
-              loadSessions();
-            }}
-            depth={0}
-          />
-        ))}
-      </div>
-
-      {/* File Explorer section */}
-      {(selectedCwdProp || selectedCwd) && (
-        <div
-          style={{
-            borderTop: "1px solid var(--border)",
-            display: "flex",
-            flexDirection: "column",
-            flex: explorerOpen ? "1 1 0" : "0 0 auto",
-            minHeight: 0,
-            overflow: "hidden",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
-            <button
-              onClick={() => setExplorerOpen((v) => !v)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                flex: 1,
-                padding: "6px 10px",
-                background: "none",
-                border: "none",
-                color: "var(--text-muted)",
-                cursor: "pointer",
-                fontSize: 11,
-                fontWeight: 600,
-                letterSpacing: "0.05em",
-                textTransform: "uppercase",
-                textAlign: "left",
-              }}
-            >
-              <svg
-                width="9" height="9" viewBox="0 0 10 10" fill="none"
-                stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
-                style={{ transform: explorerOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s", flexShrink: 0 }}
-              >
-                <polyline points="3 2 7 5 3 8" />
-              </svg>
-              Explorer
-            </button>
-            <button
-              onClick={() => {
-                setExplorerKey((k) => k + 1);
-                setExplorerRefreshDone(true);
-                if (explorerRefreshTimerRef.current) clearTimeout(explorerRefreshTimerRef.current);
-                explorerRefreshTimerRef.current = setTimeout(() => setExplorerRefreshDone(false), 2000);
-              }}
-              title="Refresh explorer"
-              style={{
-                display: "flex", alignItems: "center", justifyContent: "center",
-                width: 26, height: 26, padding: 0, marginRight: 6,
-                background: explorerRefreshDone ? "rgba(74,222,128,0.18)" : "none",
-                border: "none",
-                color: explorerRefreshDone ? "#4ade80" : "var(--text-dim)",
-                cursor: "pointer",
-                borderRadius: 5,
-                flexShrink: 0,
-                transition: "color 0.3s, background 0.3s",
-              }}
-              onMouseEnter={(e) => { if (explorerRefreshDone) return; e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
-              onMouseLeave={(e) => { if (explorerRefreshDone) return; e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
-            >
-              {explorerRefreshDone ? (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              ) : (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                  <path d="M3 3v5h5" />
-                </svg>
-              )}
-            </button>
-          </div>
-          {explorerOpen && (
-            <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
-              <FileExplorer
-                cwd={selectedCwdProp ?? selectedCwd!}
-                onOpenFile={onOpenFile ?? (() => {})}
-                refreshKey={explorerKey}
-                onAtMention={onAtMention}
-              />
+      <div ref={splitContainerRef} style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
+        {/* Session list */}
+          <div
+            onPointerEnter={clearSplitResizeStyles}
+            style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? `${1 - explorerRatio} 1 0` : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}
+          >
+          {loading && (
+            <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
+              Loading...
             </div>
           )}
+          {error && (
+            <div style={{ padding: "12px 14px", color: "#f87171", fontSize: 12 }}>
+              {error}
+            </div>
+          )}
+          {!loading && !error && filteredSessions.length === 0 && (
+            <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
+              No sessions found
+            </div>
+          )}
+          {sessionTree.map((node) => (
+            <SessionTreeItem
+              key={node.session.id}
+              node={node}
+              selectedSessionId={selectedSessionId}
+              unreadById={unreadById}
+              onSelectSession={onSelectSession}
+              onRenamed={loadSessions}
+              onSessionDeleted={(id) => {
+                onSessionDeleted?.(id);
+                loadSessions();
+              }}
+              depth={0}
+            />
+          ))}
         </div>
-      )}
+
+        {explorerOpen && (selectedCwdProp || selectedCwd) && (
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize Explorer"
+            title="Resize Explorer"
+            onPointerDown={handleExplorerSplitPointerDown}
+            style={{
+              flex: "0 0 7px",
+              cursor: "ns-resize",
+              background: splitResizing ? "var(--bg-hover)" : "var(--bg-panel)",
+              borderTop: "1px solid var(--border)",
+              borderBottom: "1px solid var(--border)",
+              position: "relative",
+              touchAction: "none",
+              userSelect: "none",
+            }}
+          >
+            <div
+              style={{
+                position: "absolute",
+                left: "50%",
+                top: "50%",
+                width: 28,
+                height: 2,
+                borderRadius: 999,
+                background: splitResizing ? "var(--accent)" : "var(--border)",
+                transform: "translate(-50%, -50%)",
+              }}
+            />
+          </div>
+        )}
+
+        {/* File Explorer section */}
+        {(selectedCwdProp || selectedCwd) && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              flex: explorerOpen ? `${explorerRatio} 1 0` : "0 0 auto",
+              minHeight: 0,
+              overflow: "hidden",
+              cursor: "default",
+            }}
+            onPointerEnter={clearSplitResizeStyles}
+          >
+            <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
+              <button
+                onClick={() => setExplorerOpen((v) => !v)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  flex: 1,
+                  padding: "6px 10px",
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-muted)",
+                  cursor: "pointer",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  letterSpacing: "0.05em",
+                  textTransform: "uppercase",
+                  textAlign: "left",
+                }}
+              >
+                <svg
+                  width="9" height="9" viewBox="0 0 10 10" fill="none"
+                  stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+                  style={{ transform: explorerOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s", flexShrink: 0 }}
+                >
+                  <polyline points="3 2 7 5 3 8" />
+                </svg>
+                Explorer
+              </button>
+              <button
+                onClick={() => {
+                  setExplorerKey((k) => k + 1);
+                  setExplorerRefreshDone(true);
+                  if (explorerRefreshTimerRef.current) clearTimeout(explorerRefreshTimerRef.current);
+                  explorerRefreshTimerRef.current = setTimeout(() => setExplorerRefreshDone(false), 2000);
+                }}
+                title="Refresh explorer"
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  width: 26, height: 26, padding: 0, marginRight: 6,
+                  background: explorerRefreshDone ? "rgba(74,222,128,0.18)" : "none",
+                  border: "none",
+                  color: explorerRefreshDone ? "#4ade80" : "var(--text-dim)",
+                  cursor: "pointer",
+                  borderRadius: 5,
+                  flexShrink: 0,
+                  transition: "color 0.3s, background 0.3s",
+                }}
+                onMouseEnter={(e) => { if (explorerRefreshDone) return; e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+                onMouseLeave={(e) => { if (explorerRefreshDone) return; e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
+              >
+                {explorerRefreshDone ? (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                ) : (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                    <path d="M3 3v5h5" />
+                  </svg>
+                )}
+              </button>
+            </div>
+            {explorerOpen && (
+              <div onPointerEnter={clearSplitResizeStyles} style={{ flex: 1, overflowY: "auto", overflowX: "hidden", cursor: "default" }}>
+                <FileExplorer
+                  cwd={selectedCwdProp ?? selectedCwd!}
+                  onOpenFile={onOpenFile ?? (() => {})}
+                  refreshKey={explorerKey}
+                  onAtMention={onAtMention}
+                />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

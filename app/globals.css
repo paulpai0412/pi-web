@@ -292,9 +292,6 @@ span.linenumber {
     overflow: hidden;
     transition: width 0.2s ease, min-width 0.2s ease;
   }
-  .sidebar-container.sidebar-resizing {
-    transition: none;
-  }
   .sidebar-container.sidebar-open {
     width: var(--sidebar-width, 260px);
     min-width: var(--sidebar-width, 260px);
@@ -308,9 +305,6 @@ span.linenumber {
   .sidebar-container > * {
     width: var(--sidebar-width, 260px);
     min-width: var(--sidebar-width, 260px);
-  }
-  .sidebar-resize-handle {
-    display: block;
   }
 }
 
@@ -351,9 +345,6 @@ span.linenumber {
     width: 280px;
     max-width: 85vw;
     transition: transform 0.25s ease, box-shadow 0.25s ease;
-  }
-  .sidebar-resize-handle {
-    display: none;
   }
   .sidebar-container.sidebar-open {
     transform: translateX(0);

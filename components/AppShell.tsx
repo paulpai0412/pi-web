@@ -16,14 +16,7 @@ import { useTheme } from "@/hooks/useTheme";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { ChatInputHandle } from "./ChatInput";
 
-const SIDEBAR_WIDTH_STORAGE_KEY = "pi-web.sidebarWidth";
 const SIDEBAR_DEFAULT_WIDTH = 260;
-const SIDEBAR_MIN_WIDTH = 220;
-const SIDEBAR_MAX_WIDTH = 560;
-
-function clampSidebarWidth(width: number) {
-  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width));
-}
 
 export function AppShell() {
   const router = useRouter();
@@ -42,8 +35,6 @@ export function AppShell() {
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
-  const [sidebarResizing, setSidebarResizing] = useState(false);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
   const northstarChatInputRef = useRef<ChatInputHandle | null>(null);
 
@@ -91,56 +82,6 @@ export function AppShell() {
   const handleAtMention = useCallback((relativePath: string) => {
     chatInputRef.current?.insertText("`" + relativePath + "`");
   }, []);
-
-  useEffect(() => {
-    const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
-    if (Number.isFinite(stored) && stored > 0) {
-      setSidebarWidth(clampSidebarWidth(stored));
-    }
-  }, []);
-
-  const handleSidebarResizePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-
-    const startX = event.clientX;
-    const startWidth = sidebarWidth;
-    const previousCursor = document.body.style.cursor;
-    const previousUserSelect = document.body.style.userSelect;
-
-    setSidebarResizing(true);
-    document.body.style.cursor = "ew-resize";
-    document.body.style.userSelect = "none";
-
-    const onPointerMove = (moveEvent: PointerEvent) => {
-      setSidebarWidth(clampSidebarWidth(startWidth + moveEvent.clientX - startX));
-    };
-
-    const onPointerUp = (upEvent: PointerEvent) => {
-      const nextWidth = clampSidebarWidth(startWidth + upEvent.clientX - startX);
-      setSidebarWidth(nextWidth);
-      window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(nextWidth));
-      setSidebarResizing(false);
-      document.body.style.cursor = previousCursor;
-      document.body.style.userSelect = previousUserSelect;
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("pointercancel", onPointerCancel);
-    };
-
-    const onPointerCancel = () => {
-      setSidebarResizing(false);
-      document.body.style.cursor = previousCursor;
-      document.body.style.userSelect = previousUserSelect;
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("pointercancel", onPointerCancel);
-    };
-
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-    window.addEventListener("pointercancel", onPointerCancel);
-  }, [sidebarWidth]);
 
   const [initialSessionId] = useState<string | null>(() => searchParams.get("session"));
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
@@ -482,9 +423,9 @@ export function AppShell() {
 
       {/* Left sidebar */}
       <div
-        className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${sidebarResizing ? " sidebar-resizing" : ""}`}
+        className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}`}
         style={{
-          "--sidebar-width": `${sidebarWidth}px`,
+          "--sidebar-width": `${SIDEBAR_DEFAULT_WIDTH}px`,
           background: "var(--bg-panel)",
           borderRight: "1px solid var(--border)",
           display: "flex",
@@ -494,26 +435,6 @@ export function AppShell() {
         } as React.CSSProperties}
       >
         {sidebarContent}
-        {sidebarOpen && (
-          <div
-            className="sidebar-resize-handle"
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="Resize sidebar"
-            title="Resize sidebar"
-            onPointerDown={handleSidebarResizePointerDown}
-            style={{
-              position: "absolute",
-              top: 0,
-              right: -3,
-              bottom: 0,
-              width: 6,
-              cursor: "ew-resize",
-              zIndex: 3,
-              touchAction: "none",
-            }}
-          />
-        )}
       </div>
 
       {/* Center: chat */}

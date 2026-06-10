@@ -255,7 +255,7 @@ export function FileExplorer({ cwd, onOpenFile, refreshKey, onAtMention }: Props
   }
 
   return (
-    <div style={{ padding: "2px 4px" }}>
+    <div style={{ padding: "2px 4px", cursor: "default" }}>
       {roots.map((node) => (
         <TreeNode
           key={node.fullPath}
