@@ -129,13 +129,9 @@ pi-web
 
 以下用 `consumer-repo` 當例子。
 
-### Step 0 — 在 agent 先跑 `/northstar-setup`
+### Step 0 — 先完成安裝
 
-先讓 setup 流程確認：
-- config 位置（`.northstar.yaml`）
-- `runtime.host_adapter`
-- GitHub credential（`GITHUB_TOKEN` 或 gh fallback）
-- 是否啟用 Project viewer
+先完成 Northstar + skill 安裝，才執行 setup。
 
 ### Step 1 — 安裝 Northstar + skill
 
@@ -154,7 +150,15 @@ npm run skill:render-config -- --cwd /path/to/consumer-repo --write --confirmed
 npm run skill:doctor -- --config /path/to/consumer-repo/.northstar.yaml --require-ready
 ```
 
-### Step 3 — 用 skill 做規劃到 issue
+### Step 3 — 在 agent 執行 `/northstar-setup`
+
+先讓 setup 流程確認：
+- config 位置（`.northstar.yaml`）
+- `runtime.host_adapter`
+- GitHub credential（`GITHUB_TOKEN` 或 gh fallback）
+- 是否啟用 Project viewer
+
+### Step 4 — 用 skill 做規劃到 issue
 
 在 consumer repo 的 agent 對話中執行：
 
@@ -164,7 +168,7 @@ npm run skill:doctor -- --config /path/to/consumer-repo/.northstar.yaml --requir
 - `/northstar-to-plan`
 - `/northstar-to-issues`
 
-### Step 4 — 執行
+### Step 5 — 執行
 
 - `/northstar-execute`
 - 或 CLI watch：
@@ -173,13 +177,13 @@ npm run skill:doctor -- --config /path/to/consumer-repo/.northstar.yaml --requir
 npm run northstar -- watch --config /path/to/consumer-repo/.northstar.yaml --max-cycles 40 --interval-ms 5000
 ```
 
-### Step 5 — 在 pi-web 觀察與操作
+### Step 6 — 在 pi-web 觀察與操作
 
 - 打開 consumer repo 對應 board
 - 監看 issue state / timeline
 - 視需要執行 Pause（quarantine）或 Resume
 
-### Step 6 — 收斂與驗證
+### Step 7 — 收斂與驗證
 
 - `/northstar-observe`
 - `/northstar-report`
